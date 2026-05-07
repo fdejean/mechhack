@@ -148,6 +148,8 @@ All starter scripts accept `--model_path` (or auto-resolve to `./models/<repo>` 
 
 **Compute**: A100-80GB primary, H200-141GB backup. Suggested target ~1 GPU-hour per Level-2 run (loose, not enforced).
 
+**IDE / agentic coding**: if you'd like to use [Claude Code](https://claude.com/claude-code) routed through EPFL AIaaS (no external API keys, RCP-hosted models only), see [`tools/claude-code-aiaas/`](tools/claude-code-aiaas/README.md). Default model: `MiniMaxAI/MiniMax-M2.7`.
+
 ---
 
 ## Submission

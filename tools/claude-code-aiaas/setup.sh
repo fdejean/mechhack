@@ -1,0 +1,65 @@
+#!/bin/bash
+# One-shot installer: Node v22 + Claude Code + aiohttp into ./vendor/.
+# Idempotent — safe to re-run.
+
+set -e
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENDOR="$HERE/vendor"
+NODE_VERSION="v22.11.0"
+
+mkdir -p "$VENDOR"
+
+# ---- 1. Node ---------------------------------------------------------------
+if [ -x "$VENDOR/node/bin/node" ]; then
+  echo "✓ node already installed: $($VENDOR/node/bin/node --version)"
+else
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    x86_64)  NODE_ARCH="x64" ;;
+    aarch64) NODE_ARCH="arm64" ;;
+    *) echo "unsupported arch: $ARCH"; exit 1 ;;
+  esac
+  TARBALL="node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+  URL="https://nodejs.org/dist/${NODE_VERSION}/${TARBALL}"
+  echo "→ downloading $URL"
+  curl -fsSL "$URL" -o "$VENDOR/$TARBALL"
+  tar -xJf "$VENDOR/$TARBALL" -C "$VENDOR/"
+  rm "$VENDOR/$TARBALL"
+  mv "$VENDOR/node-${NODE_VERSION}-linux-${NODE_ARCH}" "$VENDOR/node"
+  echo "✓ node installed: $($VENDOR/node/bin/node --version)"
+fi
+
+export PATH="$VENDOR/node/bin:$PATH"
+
+# ---- 2. Claude Code --------------------------------------------------------
+if [ -x "$VENDOR/node/bin/claude" ]; then
+  echo "✓ claude already installed: $(claude --version 2>/dev/null || echo '?')"
+else
+  echo "→ installing @anthropic-ai/claude-code (npm global into ./vendor/node/...)"
+  "$VENDOR/node/bin/npm" install -g @anthropic-ai/claude-code 2>&1 | tail -5
+  echo "✓ claude installed: $(claude --version 2>/dev/null || echo '?')"
+fi
+
+# ---- 3. aiohttp (for proxy) ------------------------------------------------
+if python3 -c "import aiohttp" 2>/dev/null; then
+  echo "✓ aiohttp already importable"
+else
+  echo "→ installing aiohttp (--user)"
+  pip install --user --quiet aiohttp 2>&1 | tail -2
+  python3 -c "import aiohttp; print('✓ aiohttp', aiohttp.__version__)"
+fi
+
+# ---- 4. Make scripts executable --------------------------------------------
+chmod +x "$HERE/aiaas-claude.sh" "$HERE/check_model.sh" "$HERE/bootstrap.sh" 2>/dev/null || true
+
+cat <<EOF
+
+Setup complete. Tools installed under: $VENDOR/
+
+Next:
+  export AIAAS_KEY=sk--...        # your AIaaS key from the RCP portal
+  $HERE/aiaas-claude.sh           # menu-pick a model, launches claude
+
+To add ./vendor/node/bin to your PATH for this shell:
+  export PATH="$VENDOR/node/bin:\$PATH"
+EOF
