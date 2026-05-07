@@ -129,7 +129,7 @@ Mythos's mitigation strategy is "block on `prohibited`; often block on `high_ris
 
 ## Setup
 
-The cluster pod spins up from the `redteam-mechinterp:v7` image with **all Python deps already installed** — no `pip install` needed. Two things you actually need to do on first login:
+The cluster pod spins up from `registry.rcp.epfl.ch/mlo-protsenk/redteam-mechinterp:v7` with **all Python deps already installed** — no `pip install` needed. Two things you actually need to do on first login:
 
 ### 1. Get your AIaaS API key (most important)
 
