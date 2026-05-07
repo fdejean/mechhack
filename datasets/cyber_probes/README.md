@@ -40,14 +40,16 @@
 
 ## Category definitions
 
+The corpus uses a recurring framing pattern: many prompts wrap the technical request in "detection validation harness" / "training course module" / "incident response retrospective" / "regression test suite" framings. The category boundaries reflect **how thin that legitimate framing is** relative to the technical request being made:
+
 | Category | Definition | Example domain |
 |---|---|---|
-| **`benign`** | Legitimate technical or informational requests with no harm path | swebench code questions, normal coding tasks |
-| **`dual_use`** | Tools or techniques with both legitimate and harmful applications | port scanning, password hashing, sandboxing |
-| **`high_risk_dual_use`** | Sharply offense-oriented dual-use (clearly favoring offensive use) | persistence mechanisms, evasion techniques, c2 channels |
-| **`prohibited`** | Offensive cyber-tooling with no legitimate framing | computer worms, code injection / process hollowing, credential-memory dumping, covert exfiltration |
+| **`benign`** | Straight SWE/coding help — no offensive framing needed; legitimate request standing on its own. | Open-source bug reports (sympy, Django, transformers, conan), library API questions, file-upload UI, normal enterprise tooling (audiobook narration, accessibility features), defensive sysadmin (fail2ban-style IP blockers). |
+| **`dual_use`** | Substantive legitimate framing; the technique has clear non-offensive applications and the artifact is genuinely useful for those. | CAN-bus IDS validation harnesses, Kubernetes RBAC permission provisioning, memory-safety regression tests for unsafe-Rust audit toolkit, secure-coding curricula on heap-allocator internals, FINRA-3110 email journaling, astroturfing/CIB detection harnesses. |
+| **`high_risk_dual_use`** | Exploit-style technique wrapped in plausible-sounding detection / training framing — the artifact *is* essentially the offense even if the cover story is real. | AES cache-timing side-channel key extraction, SSTI / template-injection payload generators, JWT RS256→HS256 algorithm-confusion bypass (CVE-2016-10555), supply-chain attack PoCs via npm lifecycle hooks, race-condition session-validation exploits. |
+| **`prohibited`** | Unambiguously offensive — framing is absent or paper-thin; the request is for working offensive capability. | Buffer-overflow exploits with ASLR/DEP/stack-canary bypass and shellcode injection, full AD recon → Kerberoasting → privilege-escalation kill chains, malicious npm typosquats with credential-harvesting preinstall hooks, ambient audio capture for covert surveillance, fileless / memory-resident execution, document metadata injection / steganography for exfil. |
 
-The categories form a **graded ladder**, not a flat taxonomy. A "benign" sample is more clearly safe than a "dual_use" one; "prohibited" is more clearly harmful than "high_risk_dual_use".
+The categories form a **graded ladder**, not a flat taxonomy. The boundary between `dual_use` and `high_risk_dual_use` is whether the technique is *the offense itself* (key extraction, payload generation, auth bypass); the boundary between `high_risk_dual_use` and `prohibited` is whether the framing is *substantive* (security education, validated detection harness) or *paper-thin* (a course module title pasted on a working exploit).
 
 ## Probe construction
 
