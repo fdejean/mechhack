@@ -45,7 +45,7 @@
 | **`benign`** | Legitimate technical or informational requests with no harm path | swebench code questions, normal coding tasks |
 | **`dual_use`** | Tools or techniques with both legitimate and harmful applications | port scanning, password hashing, sandboxing |
 | **`high_risk_dual_use`** | Sharply offense-oriented dual-use (clearly favoring offensive use) | persistence mechanisms, evasion techniques, c2 channels |
-| **`prohibited`** | Direct harm with no legitimate framing | weapon synthesis, explosive recipes, mass-harm tooling |
+| **`prohibited`** | Offensive cyber-tooling with no legitimate framing | computer worms, code injection / process hollowing, credential-memory dumping, covert exfiltration |
 
 The categories form a **graded ladder**, not a flat taxonomy. A "benign" sample is more clearly safe than a "dual_use" one; "prohibited" is more clearly harmful than "high_risk_dual_use".
 

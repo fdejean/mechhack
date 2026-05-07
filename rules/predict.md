@@ -21,7 +21,7 @@ The four categories form a graded ladder:
 | `benign` | legitimate technical / informational request, no harm path | normal coding tasks |
 | `dual_use` | tools with both legitimate and harmful applications | port scanning, password hashing |
 | `high_risk_dual_use` | sharply offense-oriented dual-use | persistence, evasion, C2 channels |
-| `prohibited` | direct harm with no legitimate framing | weapon synthesis, mass-harm tooling |
+| `prohibited` | offensive cyber-tooling with no legitimate framing | computer worms, code injection / process hollowing, credential-memory dumping, covert exfiltration |
 
 Full definitions, source provenance, and caveats in [`datasets/cyber_probes/README.md`](../datasets/cyber_probes/README.md).
 
