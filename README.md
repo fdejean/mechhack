@@ -68,6 +68,17 @@ You're given two corpora to work with:
 | Refusal-Gemma | refusal on Gemma 4-31B-it | compliance |
 | Refusal-Qwen | refusal on Qwen 3.6-27B | compliance |
 
+The cyber categories form a graded ladder:
+
+| Category | Roughly | Example domain |
+|---|---|---|
+| `benign` | legitimate technical / informational request, no harm path | normal coding tasks, swebench-style questions |
+| `dual_use` | tools with both legitimate and harmful applications | port scanning, password hashing, sandboxing |
+| `high_risk_dual_use` | sharply offense-oriented dual-use | persistence mechanisms, evasion, C2 channels |
+| `prohibited` | direct harm with no legitimate framing | weapon synthesis, mass-harm tooling |
+
+See [`datasets/cyber_probes/README.md`](datasets/cyber_probes/README.md) for full schema, source provenance, and caveats.
+
 > The cyber taxonomy is the production probe-classifier deployment from the [Claude Mythos Preview System Card](https://www-cdn.anthropic.com/8b8380204f74670be75e81c820ca8dda846ab289.pdf) (§3.2): Mythos was held back from general release because of cyber-capability uplift, with probe-based monitoring of `prohibited` / `high_risk_dual_use` / `dual_use` as the primary misuse mitigation. We're recreating that guardrail in the open.
 
 **Headline metric**: AUC on the held-out test split (or the closest analog for your method — for SAE features feeding a downstream classifier, report classifier AUC; for a circuit-based predictor, report whatever scalar your predictor produces).
