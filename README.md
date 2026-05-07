@@ -1,5 +1,7 @@
 # Red-Team Mech-Interp Hackathon
 
+
+
 Two open questions, in order:
 
 1. **Predict** — given a model's internals, can we tell whether a prompt will be refused, or what cyber-harm category it falls in?
@@ -8,6 +10,39 @@ Two open questions, in order:
 You're given two corpora to work with:
 - **6,000 cyber-harm rollouts** spanning four categories (`benign / dual_use / high_risk_dual_use / prohibited`).
 - **1,000 attack rollouts per model** (Gemma 4-31B-it and Qwen 3.6-27B), judged for refusal vs compliance.
+
+---
+
+## Schedule
+
+**Day 1 — Saturday May 9**
+
+|Time|Event|
+|---|---|
+|10:00|Registration & welcome coffee|
+|10:15|Technical kickoff: dataset walkthrough, model access, track explanations|
+|10:45|Mentor introductions + Q&A|
+|11:00|**Hacking begins**|
+|13:00|Lunch|
+|15:00|Optional tutorial session|
+|18:00|Mentor check-in|
+|19:30|Dinner|
+|22:00|Late-night snacks, room open overnight|
+
+---
+
+**Day 2 — Sunday May 10**
+
+| Time        | Event                                          |
+| ----------- | ---------------------------------------------- |
+| 10:00       | Breakfast + mentor office hours                |
+| 12:00       | Lunch                                          |
+| 14:00       | **Submissions due** — code + oral presentation |
+| 14:30       | Team presentations (Oral + Code walkthrough)   |
+| 18:30       | Presentation of Igor's work                    |
+| 18:40       | Award ceremony — CHF 1000 / 500 / 300          |
+| 19:00–19:30 | Apéro & networking                             |
+
 
 ---
 
