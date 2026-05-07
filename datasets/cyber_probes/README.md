@@ -78,7 +78,7 @@ labels = [1 if r["category"] == "high_risk_dual_use" else 0 for r in probe2_trai
 ## Source provenance
 
 The 6k rollouts come from:
-- 1000 evolved-attack samples each from 6 GEPA seeds (`heavy_4`, `heavy_5`, `omnicoder_final`, `devstral_v2_run2`, `strand_final`, `deepcoder_v2_run2`)
+- 1000 evolved-attack samples each from 6 seeds (`heavy_4`, `heavy_5`, `omnicoder_final`, `devstral_v2_run2`, `strand_final`, `deepcoder_v2_run2`)
 - Categorized by an automated DeepSeek-3.2 judge with a 4-class rubric
 - Manual spot-check ≥ 95% agreement with judge label on a 200-sample audit
 

@@ -53,7 +53,7 @@ The test split has 289 rollouts; the Level-2 attribution eval is the subset wher
 
 ## Source
 
-The 1000 attack prompts come from the same GEPA-evolved corpus used for cyber probes (different sample), but here we keep the prompt-level categorization implicit (the refusal label is what matters, not the cyber category).
+The 1000 attack prompts come from the same evolved-attack corpus used for cyber probes (different sample), but here we keep the prompt-level categorization implicit (the refusal label is what matters, not the cyber category).
 
 ## Loading
 
