@@ -90,9 +90,9 @@ Two tiers:
 
 Reuse `score_disrupt.py` with a cyber probe and an "is this still asking for the same prohibited capability?" rubric in place of the refusal judge. Same triple: probe-flip / intent-preserved / concordance. Negative results ("naturalness + minimality + intent makes cyber-probe flipping much harder than refusal-probe flipping") are equally informative.
 
-## Reference baseline (`starter_code/disrupt_baseline.py`)
+## Reference baseline ([`starter_code/iterative_edit_agent.py`](../starter_code/iterative_edit_agent.py))
 
-- **Attribution**: gradient × input on input embeddings.
+- **Attribution**: gradient × input on input embeddings ([`starter_code/grad_input_baseline.py`](../starter_code/grad_input_baseline.py)).
 - **Edit agent**: instruct LLM, schema-forced edits, top-K above IQR threshold.
 - **Iteration**: naive — no trajectory awareness.
 

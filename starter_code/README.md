@@ -1,19 +1,34 @@
 # Starter Code
 
-Minimal baselines for each level. Treat these as floors to build past, not as the answer.
+Minimal baselines and helpers. Floors to build past, not answers.
 
-## Files
+## Files at a glance
 
-| File | Level | Purpose |
+### Setup / shared
+
+| File | What it does |
+|---|---|
+| [`download_models.py`](download_models.py) | Pulls `google/gemma-4-31B-it` and `Qwen/Qwen3.6-27B` from HF Hub into `./models/`. Both are gated — needs `HF_TOKEN`. ~62 + ~55 GB. |
+| [`chunked_sdpa.py`](chunked_sdpa.py) | SDPA monkey-patch needed for Gemma 4-31B's `head_dim=512` — flash-attn doesn't support it and the math backend OOMs on long sequences. Imported as a context manager around the model forward. |
+
+### Level 1 — extract residuals, train a predictor
+
+| File | Consumes | Produces |
 |---|---|---|
-| `download_models.py` | shared | Pulls `google/gemma-4-31B-it` and `Qwen/Qwen3.6-27B` from HF Hub into `./models/` |
-| `extract_residuals.py` | 1 | GPU helper: dump `(n_selected_layers, n_tokens, d_model)` per rollout. Layer choice in `extract_config.json` — default is one middle layer; supports list, range, or `"all"`. CLI: `--model_path --layers --out_dir --samples_file`. |
-| `extract_config.json`  | 1 | Default config for the extractor (model_key, layer-spec, dtype, output dir). CLI args > env > config file. |
-| `train_probe.py` | 1 | Linear / MLP / attention probe trainer. CLI: `--extracts_dir --manifest --out_dir --task`. |
-| `grad_input_baseline.py` | 2 | Reference attribution method (full-LLM grad×input). CLI: `--model_path --probe_weights --extracts_dir --out_dir --variant`. |
-| `iterative_edit_agent.py` | 2 | Reference 5-iteration edit agent |
-| `llm_clients.py` | 2 | OpenRouter + AIaaS wrappers with schema forcing |
-| `chunked_sdpa.py` | shared | SDPA monkey-patch for Gemma's `head_dim=512` (won't fit flash-attn, won't fit math backend on long sequences) |
+| [`extract_residuals.py`](extract_residuals.py) | model + a JSONL of attack prompts (`datasets/refusal_probes/...` or `datasets/cyber_probes/...`) | per-sample `.pt` files with `residuals (n_selected_layers, n_tokens, d_model)` at fp16, plus `input_ids`, `attention_mask`, `layer_idxs`, `label`. Layer-spec controlled by `extract_config.json` or `--layers` (default: one middle layer). |
+| [`extract_config.json`](extract_config.json) | — | default config (model_key, layer-spec, dtype, output dir). CLI args > env vars > this file. |
+| [`train_probe.py`](train_probe.py) | extracts dir + manifest from `extract_residuals.py` | trained probe weights + per-task AUC metrics. Implements linear / MLP / single- and 4-head attention probes; 5 seeds per arch. |
+
+This is the *probe-shaped* starter path. If your Level-1 method is different (SAE, circuit, lens, etc.), `extract_residuals.py` still gives you the residuals to work from — you'd write your own training script and produce a `predict.py` matching the contract in [`rules/predict.md`](../rules/predict.md).
+
+### Level 2 — attribute and edit
+
+| File | Consumes | Produces |
+|---|---|---|
+| [`grad_input_baseline.py`](grad_input_baseline.py) | model + probe weights + extracts dir | per-rollout JSON with input-token attribution scores (`∂probe_logit / ∂input_embed[n] · input_embed[n]`) and top-K editable positions. **Reference attribution method.** |
+| [`iterative_edit_agent.py`](iterative_edit_agent.py) | probe + an attribution method + an edit-LLM | per-rollout edit trajectory: 5 iterations of `attribute → propose edits → verify → apply → re-score probe + intent judge`. **Reference Level-2 baseline.** |
+| [`behavior_verifier.py`](behavior_verifier.py) | model + tokenizer + an LLM judge | for each edited prompt: re-rolls the model, asks the judge whether it's now refusal or compliance. Used by `iterative_edit_agent.py --verify_behavior` and `scoring/score_disrupt.py --verify_behavior` to compute `behavior_flip_rate` and `concordance`. |
+| [`llm_clients.py`](llm_clients.py) | — | wrappers around OpenRouter + EPFL AIaaS for editor / judge LLM calls. Schema-forced JSON output, reasoning-disable presets per model class. `make_editor("qwen3-30b" / "qwen3-235b" / "deepseek-v4-pro" / "kimi-k2.6" / "minimax-m2.7")`. |
 
 ## Quick start
 

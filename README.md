@@ -114,7 +114,7 @@ High concordance ⇒ your attribution found *causal* features the model uses. Lo
 - Minimal edit count — fewer token changes is a sharper finding.
 - Natural-language compliance — gibberish/GCG-style attacks don't count (a one-line perplexity filter would catch them; they say nothing about the probe). See [`rules/disrupt.md#why-these-constraints`](rules/disrupt.md).
 
-**Reference scaffold** — an agentic edit-loop:
+**Reference scaffold** — an agentic edit-loop in [`starter_code/iterative_edit_agent.py`](starter_code/iterative_edit_agent.py):
 
 ```python
 def disrupt(probe, prompt, model, tokenizer) -> EditTrajectory:
