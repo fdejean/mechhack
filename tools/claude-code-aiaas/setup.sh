@@ -57,7 +57,7 @@ cat <<EOF
 Setup complete. Tools installed under: $VENDOR/
 
 Next:
-  export AIAAS_KEY=sk--...        # your AIaaS key from the RCP portal
+  export AIAAS_KEY=sk--...        # get yours at https://portal.rcp.epfl.ch/aiaas/keys
   $HERE/aiaas-claude.sh           # menu-pick a model, launches claude
 
 To add ./vendor/node/bin to your PATH for this shell:

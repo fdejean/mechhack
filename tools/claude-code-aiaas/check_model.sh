@@ -16,6 +16,7 @@ BASE="${AIAAS_BASE:-https://inference.rcp.epfl.ch}"
 KEY="${AIAAS_KEY:-${ANTHROPIC_AUTH_TOKEN:-}}"
 
 if [ -z "$KEY" ]; then
+  echo "Get your AIaaS key at: https://portal.rcp.epfl.ch/aiaas/keys"
   read -r -s -p "AIaaS API key (sk--...): " KEY
   echo
 fi

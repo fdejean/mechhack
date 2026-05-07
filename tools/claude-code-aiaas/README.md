@@ -9,9 +9,11 @@ data leaving the cluster, models hosted on RCP infra.
 ```bash
 cd tools/claude-code-aiaas
 ./setup.sh                     # installs Node + Claude Code + aiohttp into ./vendor/
-export AIAAS_KEY=sk--...       # your AIaaS key from the RCP portal
+export AIAAS_KEY=sk--...       # get yours at https://portal.rcp.epfl.ch/aiaas/keys
 ./aiaas-claude.sh              # menu-pick a model, launches claude
 ```
+
+> **Where to get your AIaaS key**: [portal.rcp.epfl.ch/aiaas/keys](https://portal.rcp.epfl.ch/aiaas/keys) — sign in with your EPFL credentials, create a key, copy the `sk--...` string (it's only shown once).
 
 Default model: **`MiniMaxAI/MiniMax-M2.7`** — see [why](#why-minimax-m27).
 

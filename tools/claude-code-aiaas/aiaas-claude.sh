@@ -11,6 +11,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---- 1. Key ----------------------------------------------------------------
 KEY="${AIAAS_KEY:-}"
 if [ -z "$KEY" ]; then
+  echo "Get your AIaaS key at: https://portal.rcp.epfl.ch/aiaas/keys"
   read -r -s -p "AIaaS API key (sk--...): " KEY
   echo
 fi
