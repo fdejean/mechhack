@@ -33,7 +33,8 @@ This is the *probe-shaped* starter path. If your Level-1 method is different (SA
 ## Quick start
 
 ```bash
-pip install -r ../requirements.txt
+# Pod from redteam-mechinterp:v7 has all Python deps preinstalled —
+# no pip install needed. See ../README.md "Setup" for AIaaS key + Claude Code.
 
 # 1. Download model weights (or skip if already present in ./models/ or HF cache)
 export HF_TOKEN=hf_...

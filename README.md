@@ -129,26 +129,48 @@ Mythos's mitigation strategy is "block on `prohibited`; often block on `high_ris
 
 ## Setup
 
-```bash
-git clone <this-repo>
-cd hackathon-redteam-mechinterp
-pip install -r requirements.txt
+The cluster pod spins up from the `redteam-mechinterp:v7` image with **all Python deps already installed** — no `pip install` needed. Two things you actually need to do on first login:
 
+### 1. Get your AIaaS API key (most important)
+
+[**portal.rcp.epfl.ch/aiaas/models**](https://portal.rcp.epfl.ch/aiaas/models) — sign in with EPFL credentials, browse available models (Qwen3-30B, Qwen3-235B, MiniMax-M2.7, GLM-5.1, etc.), and grab a key from [`/aiaas/keys`](https://portal.rcp.epfl.ch/aiaas/keys). The key is shown **once** — copy it immediately.
+
+```bash
+export AIAAS_KEY=sk--...
+```
+
+This is the key used by:
+- the edit-LLM wrappers in [`starter_code/llm_clients.py`](starter_code/llm_clients.py) (Level 2)
+- the refusal-judge in [`starter_code/behavior_verifier.py`](starter_code/behavior_verifier.py)
+- Claude Code itself (next step)
+
+### 2. Set up Claude Code routed through AIaaS
+
+Use [Claude Code](https://claude.com/claude-code) as your IDE / agentic coding assistant, but with **all model traffic going to RCP-hosted AIaaS** — no external API keys, no data leaving the cluster.
+
+```bash
+cd tools/claude-code-aiaas
+./setup.sh                     # installs Node + Claude Code + aiohttp into ./vendor/
+./aiaas-claude.sh              # menu-pick a model (default: MiniMaxAI/MiniMax-M2.7), launches claude
+```
+
+Full walkthrough — including how the localhost proxy works and how to debug a hung request — in [`tools/claude-code-aiaas/README.md`](tools/claude-code-aiaas/README.md).
+
+### 3. (Only if you're extracting residuals locally) Download the target models
+
+```bash
 # Both target models are gated on HF — accept the licenses, then set $HF_TOKEN:
 #   https://huggingface.co/google/gemma-4-31B-it
 #   https://huggingface.co/Qwen/Qwen3.6-27B
 export HF_TOKEN=hf_...
 python starter_code/download_models.py --out_dir ./models   # ~117 GB
-
-# Optional, for Level-2 edit-LLM:
-export OPENROUTER_KEY=sk-or-v1-...   # or AIAAS_KEY for EPFL AIaaS
 ```
 
 All starter scripts accept `--model_path` (or auto-resolve to `./models/<repo>` / HF cache). No hardcoded paths.
 
-**Compute**: A100-80GB primary, H200-141GB backup. Suggested target ~1 GPU-hour per Level-2 run (loose, not enforced).
+> **Off-cluster / laptop dev**: if you're working outside the pod (no image), install `torch transformers numpy httpx scikit-learn huggingface-hub` plus whatever your method needs. We don't ship a pinned `requirements.txt` — versions match the image, drift breaks things.
 
-**IDE / agentic coding**: if you'd like to use [Claude Code](https://claude.com/claude-code) routed through EPFL AIaaS (no external API keys, RCP-hosted models only), see [`tools/claude-code-aiaas/`](tools/claude-code-aiaas/README.md). Default model: `MiniMaxAI/MiniMax-M2.7`.
+**Compute**: A100-80GB primary, H200-141GB backup. Suggested target ~1 GPU-hour per Level-2 run (loose, not enforced).
 
 ---
 
