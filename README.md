@@ -178,8 +178,8 @@ Either level alone is fine. Link your code (notebook / repo / gist) on the last 
 ## Suggested reading
 
 **Methods**
-- **Probe-Rewrite-Evaluate** — Xiong et al., [arxiv 2509.00591](https://arxiv.org/pdf/2509.00591). Closest analog to the Level-2 loop: linear probe + LLM rewriter shifting prompts along a probe-defined axis. They verify behavior change, not just probe change.
-- **Reasoning Theater** — Boppana et al., [arxiv 2603.05488](https://arxiv.org/pdf/2603.05488v3). Activation probing on reasoning models; final answers are decodable from activations earlier than CoT monitors can detect. Relevant for Qwen 3.6.
+- **Probe-Rewrite-Evaluate** — Xiong et al., [arxiv 2509.00591](https://arxiv.org/pdf/2509.00591). Closest analog to the Level-2 loop: linear probe + LLM rewriter shifting prompts along a probe-defined axis.
+- **Reasoning Theater** — Boppana et al., [arxiv 2603.05488](https://arxiv.org/pdf/2603.05488v3). Activation probing on reasoning models; final answers are decodable from activations earlier than CoT monitors can detect.
 
 **Threat-model context**
 - **Constitutional Classifiers++** — Cunningham et al., [arxiv 2601.04603](https://arxiv.org/abs/2601.04603). Anthropic's production jailbreak-defense stack, combining linear probes with external classifiers.
