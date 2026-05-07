@@ -68,18 +68,7 @@ You're given two corpora to work with:
 | Refusal-Gemma | refusal on Gemma 4-31B-it | compliance |
 | Refusal-Qwen | refusal on Qwen 3.6-27B | compliance |
 
-The cyber categories form a graded ladder, anchored on **how frequent benign use is** for the underlying technique (matches the Mythos taxonomy):
-
-| Category | Roughly | Example domain |
-|---|---|---|
-| `benign` | no offensive utility | open-source bug reports (sympy/Django/transformers), normal enterprise tooling, defensive sysadmin (fail2ban-style) |
-| `dual_use` | benign use is frequent; some potential for harm | vulnerability detection, IDS validation harnesses, secure-coding curricula, RBAC provisioning |
-| `high_risk_dual_use` | some benign uses, but offensive use causes significant harm | exploit development (SSTI payload generation, JWT algorithm-confusion bypass, AES cache-timing key extraction) |
-| `prohibited` | benign use is very rare | computer worms, full exploit kill chains (recon → privesc → exfil), buffer-overflow exploits with ASLR/DEP bypass, fileless malware, covert audio capture |
-
-See [`datasets/cyber_probes/README.md`](datasets/cyber_probes/README.md) for full schema, source provenance, and caveats.
-
-> The cyber taxonomy is the production probe-classifier deployment from the [Claude Mythos Preview System Card](https://www-cdn.anthropic.com/8b8380204f74670be75e81c820ca8dda846ab289.pdf) (§3.2): Mythos was held back from general release because of cyber-capability uplift, with probe-based monitoring of `prohibited` / `high_risk_dual_use` / `dual_use` as the primary misuse mitigation. We're recreating that guardrail in the open.
+> The cyber taxonomy (`benign / dual_use / high_risk_dual_use / prohibited`) mirrors the production probe-classifier deployment from the [Claude Mythos Preview System Card](https://www-cdn.anthropic.com/8b8380204f74670be75e81c820ca8dda846ab289.pdf) (§3.2). Full category definitions, examples, and source provenance in [`datasets/cyber_probes/README.md`](datasets/cyber_probes/README.md).
 
 **Headline metric**: AUC on the held-out test split (or the closest analog for your method — for SAE features feeding a downstream classifier, report classifier AUC; for a circuit-based predictor, report whatever scalar your predictor produces).
 
