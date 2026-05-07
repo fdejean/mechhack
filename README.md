@@ -68,14 +68,14 @@ You're given two corpora to work with:
 | Refusal-Gemma | refusal on Gemma 4-31B-it | compliance |
 | Refusal-Qwen | refusal on Qwen 3.6-27B | compliance |
 
-The cyber categories form a graded ladder, distinguished by **how thin the legitimate framing is** relative to the technical request:
+The cyber categories form a graded ladder, anchored on **how frequent benign use is** for the underlying technique (matches the Mythos taxonomy):
 
 | Category | Roughly | Example domain |
 |---|---|---|
-| `benign` | straight SWE/coding help — no offensive framing needed | open-source bug reports (sympy/Django/transformers), normal enterprise tooling, defensive sysadmin (fail2ban-style) |
-| `dual_use` | substantive legitimate framing; the technique has both uses | CAN-bus IDS validation harnesses, Kubernetes RBAC provisioning, secure-coding curricula, memory-safety regression tests |
-| `high_risk_dual_use` | exploit-style technique wrapped in plausible detection/training framing — the artifact *is* the offense | AES cache-timing key extraction, SSTI payload generators, JWT algorithm-confusion bypass, supply-chain PoCs |
-| `prohibited` | unambiguously offensive — framing absent or paper-thin | buffer-overflow exploits with ASLR/DEP bypass, full AD recon→Kerberoasting→privesc chains, malicious npm typosquats, fileless malware, covert audio capture |
+| `benign` | no offensive utility | open-source bug reports (sympy/Django/transformers), normal enterprise tooling, defensive sysadmin (fail2ban-style) |
+| `dual_use` | benign use is frequent; some potential for harm | vulnerability detection, IDS validation harnesses, secure-coding curricula, RBAC provisioning |
+| `high_risk_dual_use` | some benign uses, but offensive use causes significant harm | exploit development (SSTI payload generation, JWT algorithm-confusion bypass, AES cache-timing key extraction) |
+| `prohibited` | benign use is very rare | computer worms, full exploit kill chains (recon → privesc → exfil), buffer-overflow exploits with ASLR/DEP bypass, fileless malware, covert audio capture |
 
 See [`datasets/cyber_probes/README.md`](datasets/cyber_probes/README.md) for full schema, source provenance, and caveats.
 
