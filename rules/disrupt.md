@@ -119,4 +119,4 @@ Wrappers set `reasoning.enabled=False` for thinking models that need it (DeepSee
 
 ## Submission
 
-10-minute Google Slides talk + 2 minutes follow-up. See README §Submission. Link your code (notebook / repo / gist) on the last slide so it's reproducible after the talk.
+10-minute Google Slides or poster + 2 minutes follow-up. Cover your methodological choices and results. See README §Submission. Link your code on the last slide / corner of the poster so it's reproducible after the talk.

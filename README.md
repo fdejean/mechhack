@@ -163,14 +163,14 @@ All starter scripts accept `--model_path` (or auto-resolve to `./models/<repo>` 
 
 ## Submission
 
-A **Google Slides** deck presented live: **10 minutes + 2 minutes follow-up**. Cover your findings and a code overview. Suggested structure:
+**Google Slides or poster** presented live: **10 minutes + 2 minutes follow-up**. Cover your **methodological choices** and **results**. Suggested structure:
 
-- The `f` you built for Level 1 (method, layer/feature/circuit, AUCs across the 5 tasks).
-- Your Level-2 attack — attribution source, edit mechanism, results: `probe_flip_rate / behavior_flip_rate / concordance`, plus minimality and naturalness.
+- The `f` you built for Level 1 (method, layer/feature/circuit, AUCs across the 5 tasks) — and *why* you chose it.
+- Your Level-2 attack — attribution source, edit mechanism, the trade-offs you made, and results: `probe_flip_rate / behavior_flip_rate / concordance`, plus minimality and naturalness.
 - A few worked examples — original prompt, edited prompt, the tokens you changed and why your attribution flagged them.
 - What surprised you, what didn't work, where you'd take it next.
 
-Either level alone is fine. Link your code (notebook / repo / gist) on the last slide so it's reproducible after the talk.
+Either level alone is fine. Link your code (notebook / repo / gist) on the last slide / corner of the poster so it's reproducible after the talk.
 
 ---
 
