@@ -156,35 +156,25 @@ cd tools/claude-code-aiaas
 
 Full walkthrough — including how the localhost proxy works and how to debug a hung request — in [`tools/claude-code-aiaas/README.md`](tools/claude-code-aiaas/README.md).
 
-### 3. (Only if you're extracting residuals locally) Get the target models
+### 3. Target models — pre-staged on the pod
 
-The pod mounts a **read-only `/data/models/`** with both target models pre-staged:
+The pod has a **read-only `/data/models/`** mount with both target models already there. Nothing to download:
 
 ```
 /data/models/
-├── Gemma-4-31B-it/      ← google/gemma-4-31B-it, full snapshot
-└── Qwen3.6-27B/         ← Qwen/Qwen3.6-27B, full snapshot
+├── Gemma-4-31B-it/      ← google/gemma-4-31B-it, full snapshot (59 GB)
+└── Qwen3.6-27B/         ← Qwen/Qwen3.6-27B, full snapshot (52 GB)
 ```
 
-Starter scripts auto-resolve to `/data/models/<repo>` first — no env vars needed, no `--model_path` flag, no download. Just run:
+Starter scripts auto-resolve `/data/models/<repo>` — no env vars, no `--model_path`, just run:
 
 ```bash
 python starter_code/extract_residuals.py --model_key gemma4_31b
 ```
 
-If you're working off-cluster (laptop / Colab / your own pod) and the RO mount isn't there, you can download into a writable spot:
+The full resolver lookup order (first hit wins): `--model_path` flag → `$HACKATHON_MODELS_DIR/<repo>` → `/data/models/<repo>` → `<repo-root>/models/<repo>` → HF cache.
 
-```bash
-# Both models are gated on HF — accept the licenses first:
-#   https://huggingface.co/google/gemma-4-31B-it
-#   https://huggingface.co/Qwen/Qwen3.6-27B
-export HF_TOKEN=hf_...
-python starter_code/download_models.py --out_dir ./models   # ~117 GB
-```
-
-Resolver lookup order (first hit wins): `--model_path` flag → `$HACKATHON_MODELS_DIR/<repo>` → `/data/models/<repo>` → `<repo-root>/models/<repo>` → HF cache.
-
-> **Off-cluster / laptop dev**: if you're working outside the pod (no image), install `torch transformers numpy httpx scikit-learn huggingface-hub` plus whatever your method needs. We don't ship a pinned `requirements.txt` — versions match the image, drift breaks things.
+> **Working off-cluster?** If you're on a laptop / Colab / your own pod without the RO mount, run `python starter_code/download_models.py --out_dir ./models` after `export HF_TOKEN=hf_...` (both models are gated; accept the licenses at [huggingface.co/google/gemma-4-31B-it](https://huggingface.co/google/gemma-4-31B-it) and [huggingface.co/Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B) first). ~117 GB total. You'll also need to pip-install the deps (the pod image has them baked in): `torch transformers numpy httpx scikit-learn huggingface-hub hf_transfer`. We don't ship a pinned `requirements.txt` — versions match the v8 image, drift breaks things.
 
 **Compute**: A100-80GB primary, H200-141GB backup. Suggested target ~1 GPU-hour per Level-2 run (loose, not enforced).
 
