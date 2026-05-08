@@ -33,7 +33,7 @@ This is the *probe-shaped* starter path. If your Level-1 method is different (SA
 ## Quick start
 
 ```bash
-# Pod from registry.rcp.epfl.ch/mlo-protsenk/redteam-mechinterp:v8 has all
+# Pod from registry.rcp.epfl.ch/mlo-protsenk/redteam-mechinterp:v9 has all
 # Python deps preinstalled — no pip install needed.
 # Models are pre-staged at /data/{Gemma-4-31B-it,Qwen3.6-27B} (read-only).
 # See ../README.md "Setup" for AIaaS key + Claude Code.

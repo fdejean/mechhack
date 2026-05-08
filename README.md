@@ -129,7 +129,32 @@ Mythos's mitigation strategy is "block on `prohibited`; often block on `high_ris
 
 ## Setup
 
-The cluster pod spins up from `registry.rcp.epfl.ch/mlo-protsenk/redteam-mechinterp:v8` with **all Python deps already installed** — no `pip install` needed. Two things you actually need to do on first login:
+The cluster pod spins up from `registry.rcp.epfl.ch/mlo-protsenk/redteam-mechinterp:v9` with **all Python deps already installed** — no `pip install` needed. The container's working directory is `/scratch`, which is your group's RW PVC mount, so anything you write lands there.
+
+### 0. Launch your pod
+
+Once you've been added to your hackathon group (admin handles this), submit a long-running pod:
+
+```bash
+runai submit dev-pod \
+    --image registry.rcp.epfl.ch/mlo-protsenk/redteam-mechinterp:v9 \
+    --gpu 1 \
+    --pvc hackathon-mechhack-scratch-gNN:/scratch \
+    --pvc hackathon-mechhack-shared-ro:/data \
+    --command -- sleep infinity
+```
+
+Replace `gNN` with your group number (e.g., `g03`). Two PVCs:
+- `…-scratch-gNN` → `/scratch` — your group's writable workspace, where the container starts
+- `…-shared-ro` → `/data` — read-only mount with `Gemma-4-31B-it/` and `Qwen3.6-27B/` pre-staged
+
+Then exec into it:
+
+```bash
+runai exec -it dev-pod -- bash      # lands in /scratch
+```
+
+> **Need an H100?** Add `--node-pools h100`. The default pool works for most things; pick H100 explicitly only if your method actually needs it.
 
 ### 1. Get your AIaaS API key (most important)
 
@@ -174,7 +199,7 @@ python starter_code/extract_residuals.py --model_key gemma4_31b
 
 The full resolver lookup order (first hit wins): `--model_path` flag → `$HACKATHON_MODELS_DIR/<repo>` → `/data/<repo>` → `<repo-root>/models/<repo>` → HF cache.
 
-> **Working off-cluster?** If you're on a laptop / Colab / your own pod without the RO mount, run `python starter_code/download_models.py --out_dir ./models` after `export HF_TOKEN=hf_...` (both models are gated; accept the licenses at [huggingface.co/google/gemma-4-31B-it](https://huggingface.co/google/gemma-4-31B-it) and [huggingface.co/Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B) first). ~117 GB total. You'll also need to pip-install the deps (the pod image has them baked in): `torch transformers numpy httpx scikit-learn huggingface-hub hf_transfer`. We don't ship a pinned `requirements.txt` — versions match the v8 image, drift breaks things.
+> **Working off-cluster?** If you're on a laptop / Colab / your own pod without the RO mount, run `python starter_code/download_models.py --out_dir ./models` after `export HF_TOKEN=hf_...` (both models are gated; accept the licenses at [huggingface.co/google/gemma-4-31B-it](https://huggingface.co/google/gemma-4-31B-it) and [huggingface.co/Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B) first). ~117 GB total. You'll also need to pip-install the deps (the pod image has them baked in): `torch transformers numpy httpx scikit-learn huggingface-hub hf_transfer`. We don't ship a pinned `requirements.txt` — versions match the v9 image, drift breaks things.
 
 **Compute**: A100-80GB primary, H200-141GB backup. Suggested target ~1 GPU-hour per Level-2 run (loose, not enforced).
 
