@@ -9,6 +9,16 @@ NODE_VERSION="v22.11.0"
 
 mkdir -p "$VENDOR"
 
+# ---- 0. Silence git's "dubious ownership" warning -------------------------
+# The cluster's NFS-backed /scratch uses flat-permissions remapping: every
+# write lands owned by the group's mapped uid:gid (e.g., 20088699:88699),
+# which doesn't match `whoami` inside the container. Git refuses to operate
+# on repos whose owner doesn't match the caller — register the repo root as
+# safe so `git status` / `git pull` work without arguing.
+if REPO_ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null)"; then
+  git config --global --add safe.directory "$REPO_ROOT" 2>/dev/null || true
+fi
+
 # ---- 1. Node ---------------------------------------------------------------
 if [ -x "$VENDOR/node/bin/node" ]; then
   echo "✓ node already installed: $($VENDOR/node/bin/node --version)"
