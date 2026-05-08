@@ -110,6 +110,22 @@ def parse_gemma_response(tok, raw_decode: str) -> tuple[str, str]:
     return thinking or "", response or raw_decode
 
 
+def parse_qwen_response(raw_decode: str) -> tuple[str, str]:
+    """Split Qwen's `<think>...</think>` block from the final answer.
+
+    Matches the corpus's hackathon attacks_full.jsonl schema, which stores
+    `thinking` and `response` as separate fields for Qwen rows.
+    """
+    import re
+    m = re.search(r"<think>(.*?)</think>\s*", raw_decode, re.DOTALL)
+    if m:
+        return m.group(1).strip(), raw_decode[m.end():].strip()
+    end = raw_decode.rfind("</think>")
+    if end >= 0:
+        return raw_decode[:end].lstrip("<think>").strip(), raw_decode[end+len("</think>"):].strip()
+    return "", raw_decode.strip()
+
+
 def already_done(out_path: Path) -> set[str]:
     if not out_path.exists(): return set()
     done = set()
@@ -185,23 +201,24 @@ def main():
             out_tokens = int(comp_ids.shape[0])
             hit_cap = out_tokens >= args.max_new_tokens
 
-            thinking_text = ""
+            # Decode raw with special tokens preserved so we can split thinking
+            # the same way the corpus pipeline did.
+            raw = tok.decode(comp_ids, skip_special_tokens=False)
             if is_gemma:
-                raw = tok.decode(comp_ids, skip_special_tokens=False)
                 thinking_text, response = parse_gemma_response(tok, raw)
             else:
-                response = tok.decode(comp_ids, skip_special_tokens=True)
+                # Qwen: split <think>...</think> block from the final answer.
+                thinking_text, response = parse_qwen_response(raw)
 
             row = {**atk,
                    "rollout": response,
+                   "thinking": thinking_text,
                    "in_tokens": seq_in,
                    "out_tokens_actual": out_tokens,
                    "out_tokens_max": args.max_new_tokens,
                    "hit_token_cap": hit_cap,
                    "gen_seconds": round(gen_s, 2),
                    "target_model": HF_REPOS[args.model_key].split("/")[-1]}
-            if is_gemma and thinking_text:
-                row["thinking"] = thinking_text
 
             fout.write(json.dumps(row, ensure_ascii=False) + "\n"); fout.flush()
             elapsed = time.time() - t_start
