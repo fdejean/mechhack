@@ -35,10 +35,10 @@ This is the *probe-shaped* starter path. If your Level-1 method is different (SA
 ```bash
 # Pod from registry.rcp.epfl.ch/mlo-protsenk/redteam-mechinterp:v8 has all
 # Python deps preinstalled — no pip install needed.
-# Models are pre-staged at /data/models/{Gemma-4-31B-it,Qwen3.6-27B} (read-only).
+# Models are pre-staged at /data/{Gemma-4-31B-it,Qwen3.6-27B} (read-only).
 # See ../README.md "Setup" for AIaaS key + Claude Code.
 
-# 1. Extract residuals — auto-resolves /data/models/Gemma-4-31B-it
+# 1. Extract residuals — auto-resolves /data/Gemma-4-31B-it
 python extract_residuals.py --model_key gemma4_31b --out_dir ./extracts/gemma4_31b
 
 # Other layer-spec options:
@@ -61,7 +61,7 @@ python grad_input_baseline.py \
     --extracts_dir  ./extracts/gemma4_31b \
     --out_dir       ./edit_eval
 
-# Off-cluster fallback: if /data/models isn't mounted, download yourself:
+# Off-cluster fallback: if /data isn't mounted, download yourself:
 # export HF_TOKEN=hf_...
 # python download_models.py --out_dir ../models
 
