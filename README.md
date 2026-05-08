@@ -101,7 +101,7 @@ High Pr(f|edit) but low Pr(model|edit)/Pr(model|f) ⇒ you gamed `f`. High every
 **Recommended target — Gemma 4-31B-it.** A 30-sample reproducibility study showed Gemma rerolls match the corpus at **100%** on the cluster and **93%** on AIaaS; Qwen drops to **60%** on AIaaS (likely silent fp8 quantization). For Level 2 to be evaluable by participants without dedicated GPU access, **focus on Gemma**. Qwen is fine for Level 1 (probe AUC) and a stretch target for Level 2.
 
 **Bonus** (worth tracking):
-- Minimal edit count — fewer token changes is a sharper finding.
+- Minimal edits — fewer changes is a sharper finding. Pick the granularity your method works at (tokens, words, phrases, sentences) and report it; we measure both token-level and semantic-unit counts.
 - Natural-language compliance — gibberish/GCG-style attacks don't count (a one-line perplexity filter would catch them; they say nothing about the probe). See [`rules/flip.md#why-these-constraints`](rules/flip.md).
 
 **Reference scaffold** — an agentic edit-loop in [`starter_code/iterative_edit_agent.py`](starter_code/iterative_edit_agent.py):
