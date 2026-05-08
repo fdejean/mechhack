@@ -109,6 +109,12 @@ A100-80GB primary, H200-141GB backup. Suggested target ~1 GPU-hour per Level-2 r
 
 ## Common gotchas
 
+- **`runai login` succeeds but you see `dial tcp: lookup caas-test.rcp.epfl.ch on …: no such host`.** Your `~/.kube/config` (on the jumphost or laptop) has a stale cluster entry pointing at a decommissioned endpoint. Replace it with the current one from the wiki:
+  ```bash
+  wget https://wiki.rcp.epfl.ch/public/files/kube-config.yaml -O ~/.kube/config && chmod 600 ~/.kube/config
+  runai login    # re-auth into the new cluster URL
+  runai config project hackathon-mechhack-protsenk    # restore default project
+  ```
 - **`fatal: detected dubious ownership in repository`** when you `git pull` or `git status` on `/scratch`. Fix: run `tools/claude-code-aiaas/setup.sh` once (it registers the repo root as a git `safe.directory`), or `git config --global --add safe.directory /scratch/<your-repo-path>`.
 - **`--dangerously-skip-permissions cannot be used with root`** when running Claude Code. Cluster pods run as root by design. Fix: `export IS_SANDBOX=1` (the documented bypass for sandboxed container environments). `aiaas-claude.sh` does this for you.
 - **Claude Code hangs ~3 min on first prompt.** The AIaaS model is cold-loading on first request after a quiet period. Subsequent calls are fast (<1 s). If it never returns, run `tools/claude-code-aiaas/check_model.sh <model-id>` to triage.
