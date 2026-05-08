@@ -161,9 +161,20 @@ python starter_code/extract_residuals.py --model_key gemma4_31b --sample_limit 2
 **Google Slides or poster** presented live: **10 minutes + 2 minutes follow-up**. Cover your **methodological choices** and **results**. Suggested structure:
 
 - The `f` you built for Level 1 (method, layer/feature/circuit, AUCs across the 5 tasks) — and *why* you chose it.
-- Your Level-2 attack — attribution source, edit mechanism, the trade-offs you made, and results: `probe_flip_rate / behavior_flip_rate / concordance`, plus minimality and naturalness.
-- A few worked examples — original prompt, edited prompt, the tokens you changed and why your attribution flagged them.
+- Your Level-2 attack — attribution source, edit mechanism, the trade-offs you made, and results: **Pr(f|edit), Pr(model|edit), Pr(model|f)**, plus minimality and naturalness.
+- A few worked examples — original prompt, edited prompt, the tokens (or words / sentences) you changed and why your attribution flagged them.
 - What surprised you, what didn't work, where you'd take it next.
+
+### Reporting requirements — sample size and error bars
+
+State the **n** behind every number, and put an error bar on it. The Level-2 eval set is small (Gemma `attribution_eval.jsonl` has **n=81** refusals; Qwen has **n=62**), so a 5-percentage-point gap can easily be noise:
+
+- **Level 1 (AUC)**: report mean ± std across **≥3 seeds** of probe training, and a bootstrap 95% CI on the test-split AUC. With ~289 test rollouts per probe, the AUC standard error is ~0.02-0.03, so two AUCs differing by less than ~0.05 are not distinguishable.
+- **Level 2 (Pr(·) triple)**: each probability is a binomial proportion. Attach a **Wilson 95% CI** (or simple `±1.96·sqrt(p(1-p)/n)`). At n=80, p=0.5, the CI is roughly **±11 percentage points** — interpret your headline accordingly.
+- **Pr(model | f flipped)**: the denominator is "samples where probe flipped," which is itself a random subset. If you only flipped the probe on 30 of 80 rollouts, your Pr(model|f) is computed on **n=30** — say so.
+- **Worked examples shown in slides should be representative, not cherry-picked**. If 2 of your 5 examples are outliers, say which 2.
+
+If you want a tighter eval set, you can extend beyond `attribution_eval.jsonl` — there are 241 refusal rollouts ≤2048 tokens in the full Gemma corpus (175 for Qwen). The eval-set you report on must be reproducible from the data we shipped.
 
 Either level alone is fine. Link your code (notebook / repo / gist) on the last slide / corner of the poster so it's reproducible after the talk.
 
