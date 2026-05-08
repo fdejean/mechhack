@@ -17,32 +17,19 @@ if [ -z "$KEY" ]; then
 fi
 [ -z "$KEY" ] && { echo "no key — aborting"; exit 1; }
 
-# ---- 2. Model selection ----------------------------------------------------
+# ---- 2. Model selection (constrained to the two we recommend for coding) ---
 echo
 echo "Pick a model:"
-echo "  1) MiniMaxAI/MiniMax-M2.7                 (RECOMMENDED — reasoning ON, ~8-10s)"
-echo "  2) Qwen/Qwen3-30B-A3B-Instruct-2507        (fast, no thinking, ~1-3s)"
-echo "  3) Qwen/Qwen3-235B-A22B-Instruct-2507-fp8  (bigger, ~3-5s)"
-echo "  4) zai-org/GLM-5.1-fp8                     (no thinking)"
-echo "  5) moonshotai/Kimi-K2.6                    (THINKING — proxy disables)"
-echo "  6) deepseek-ai/DeepSeek-V4-Pro             (THINKING — proxy disables)"
-echo "  7) Qwen/Qwen3-VL-235B-A22B-Thinking        (THINKING — proxy disables)"
-echo "  8) custom — paste full id"
+echo "  1) MiniMaxAI/MiniMax-M2.7    (RECOMMENDED — reasoning ON, ~8-10s)"
+echo "  2) moonshotai/Kimi-K2.6      (THINKING — proxy disables, ~slower)"
 read -r -p "Choice [1]: " CHOICE
 CHOICE="${CHOICE:-1}"
 
 case "$CHOICE" in
   1) MODEL="MiniMaxAI/MiniMax-M2.7" ;;
-  2) MODEL="Qwen/Qwen3-30B-A3B-Instruct-2507" ;;
-  3) MODEL="Qwen/Qwen3-235B-A22B-Instruct-2507-fp8" ;;
-  4) MODEL="zai-org/GLM-5.1-fp8" ;;
-  5) MODEL="moonshotai/Kimi-K2.6" ;;
-  6) MODEL="deepseek-ai/DeepSeek-V4-Pro" ;;
-  7) MODEL="Qwen/Qwen3-VL-235B-A22B-Thinking" ;;
-  8) read -r -p "Full model id: " MODEL ;;
-  *) MODEL="$CHOICE" ;;
+  2) MODEL="moonshotai/Kimi-K2.6" ;;
+  *) echo "invalid choice: $CHOICE — pick 1 or 2"; exit 1 ;;
 esac
-[ -z "$MODEL" ] && { echo "no model — aborting"; exit 1; }
 echo "Using model: $MODEL"
 
 # ---- 3. Verify model in catalog --------------------------------------------

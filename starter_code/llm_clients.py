@@ -138,22 +138,37 @@ def reasoning_off_for(model: str) -> dict | None:
 
 
 # --- Convenience constructors ---
-def make_editor(name: str = "qwen3-30b") -> _BaseClient:
-    """Pick a sensible editor with thinking-off baked in.
+def make_editor(name: str = "minimax-m2.7") -> _BaseClient:
+    """Pick a sensible editor.
 
-    name: 'qwen3-30b' (default, fast), 'qwen3-235b' (smarter, ~3x slower),
-          'deepseek-v4-pro' (best multi-token edits, slow), 'kimi-k2.6' (thinking),
-          'minimax-m2.7' (AIaaS, ~3-4 s/call — keep reasoning ON: with reasoning
-          disabled, this model refuses or returns no-op edits).
+    Default is MiniMax-M2.7 (AIaaS, ~8-10 s/call) — same model the
+    hackathon uses across edit agents and judges, so results stay
+    comparable. Reasoning is kept ON for MiniMax (it refuses or no-ops
+    when disabled). Other choices below are kept for flexibility.
+
+    name: 'minimax-m2.7' (default, recommended), 'kimi-k2.6' (thinking,
+          OpenRouter), 'qwen3-30b' (fast/cheap), 'qwen3-235b' (smarter),
+          'deepseek-v4-pro' (slow but best multi-token rewrites).
     """
+    if name == "minimax-m2.7":
+        return AIaaSClient("MiniMaxAI/MiniMax-M2.7")
+    if name == "kimi-k2.6":
+        return OpenRouterClient("moonshotai/kimi-k2.6", reasoning={"enabled": False})
     if name == "qwen3-30b":
         return AIaaSClient("Qwen/Qwen3-30B-A3B-Instruct-2507")
     if name == "qwen3-235b":
         return AIaaSClient("Qwen/Qwen3-235B-A22B-Instruct-2507-fp8")
     if name == "deepseek-v4-pro":
         return OpenRouterClient("deepseek/deepseek-v4-pro", reasoning={"enabled": False})
-    if name == "kimi-k2.6":
-        return OpenRouterClient("moonshotai/kimi-k2.6", reasoning={"enabled": False})
-    if name == "minimax-m2.7":
-        return AIaaSClient("MiniMaxAI/MiniMax-M2.7")
     raise ValueError(f"unknown editor: {name}")
+
+
+def make_judge(name: str = "minimax-m2.7") -> _BaseClient:
+    """Default judge for refusal/compliance + intent-preservation tasks.
+
+    Pinned to MiniMax-M2.7 by default so every submission is graded by
+    the same model. Any of `make_editor`'s options is also valid here —
+    MiniMax is preferred because the same model also drives the edit
+    agent path, which keeps the rubric consistent across the pipeline.
+    """
+    return make_editor(name)
