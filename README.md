@@ -167,7 +167,7 @@ python starter_code/extract_residuals.py --model_key gemma4_31b --sample_limit 2
 
 Whenever you report a Pr(·) or AUC, show your **sample size n and an error bar** (Wilson 95% CI for proportions, bootstrap or seed-std for AUC). The Level-2 eval set is small (n≈80) — a 5pp gap can easily be noise.
 
-Either level alone is fine. Link your code (notebook / repo / gist) on the last slide / corner of the poster so it's reproducible after the talk.
+Link your code (notebook / repo / gist) on the last slide / corner of the poster so it's reproducible after the talk.
 
 ---
 
