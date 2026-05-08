@@ -49,7 +49,7 @@ def resolve_model_path(model_key: str, model_path: str | None) -> str:
     """Lookup order (first hit wins):
       1. explicit --model_path
       2. $HACKATHON_MODELS_DIR/<repo-name>
-      3. /data/models/<repo-name>             (cluster RO mount)
+      3. /data/<repo-name>                    (cluster RO mount)
       4. <repo-root>/models/<repo-name>
       5. HF cache via snapshot_download(local_files_only=True)
     """
@@ -63,7 +63,7 @@ def resolve_model_path(model_key: str, model_path: str | None) -> str:
     candidates = []
     if env := os.environ.get("HACKATHON_MODELS_DIR"):
         candidates.append(Path(env) / repo_basename)
-    candidates.append(Path("/data/models") / repo_basename)
+    candidates.append(Path("/data") / repo_basename)
     candidates.append(Path(__file__).resolve().parent.parent / "models" / repo_basename)
     for c in candidates:
         if c.exists():

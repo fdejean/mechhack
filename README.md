@@ -158,21 +158,21 @@ Full walkthrough — including how the localhost proxy works and how to debug a 
 
 ### 3. Target models — pre-staged on the pod
 
-The pod has a **read-only `/data/models/`** mount with both target models already there. Nothing to download:
+The pod has a **read-only `/data/`** mount with both target models already there. Nothing to download:
 
 ```
-/data/models/
+/data/
 ├── Gemma-4-31B-it/      ← google/gemma-4-31B-it, full snapshot (59 GB)
 └── Qwen3.6-27B/         ← Qwen/Qwen3.6-27B, full snapshot (52 GB)
 ```
 
-Starter scripts auto-resolve `/data/models/<repo>` — no env vars, no `--model_path`, just run:
+Starter scripts auto-resolve `/data/<repo>` — no env vars, no `--model_path`, just run:
 
 ```bash
 python starter_code/extract_residuals.py --model_key gemma4_31b
 ```
 
-The full resolver lookup order (first hit wins): `--model_path` flag → `$HACKATHON_MODELS_DIR/<repo>` → `/data/models/<repo>` → `<repo-root>/models/<repo>` → HF cache.
+The full resolver lookup order (first hit wins): `--model_path` flag → `$HACKATHON_MODELS_DIR/<repo>` → `/data/<repo>` → `<repo-root>/models/<repo>` → HF cache.
 
 > **Working off-cluster?** If you're on a laptop / Colab / your own pod without the RO mount, run `python starter_code/download_models.py --out_dir ./models` after `export HF_TOKEN=hf_...` (both models are gated; accept the licenses at [huggingface.co/google/gemma-4-31B-it](https://huggingface.co/google/gemma-4-31B-it) and [huggingface.co/Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B) first). ~117 GB total. You'll also need to pip-install the deps (the pod image has them baked in): `torch transformers numpy httpx scikit-learn huggingface-hub hf_transfer`. We don't ship a pinned `requirements.txt` — versions match the v8 image, drift breaks things.
 
