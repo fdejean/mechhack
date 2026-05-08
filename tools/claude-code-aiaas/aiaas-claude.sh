@@ -121,4 +121,10 @@ EOF
 CLAUDE="$(command -v claude 2>/dev/null || true)"
 [ -z "$CLAUDE" ] && CLAUDE="$HERE/vendor/node/bin/claude"
 [ -x "$CLAUDE" ] || { echo "claude not found — run ./setup.sh first"; exit 1; }
+
+# Tell Claude Code we're inside a sandbox. Cluster pods run as root by
+# design (k8s isolation, NFS flat-permissions remap), and Claude Code
+# refuses --dangerously-skip-permissions as root unless this is set.
+# IS_SANDBOX=1 is the documented bypass for container environments.
+export IS_SANDBOX=1
 exec "$CLAUDE" --dangerously-skip-permissions
