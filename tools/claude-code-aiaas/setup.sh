@@ -15,7 +15,12 @@ mkdir -p "$VENDOR"
 # which doesn't match `whoami` inside the container. Git refuses to operate
 # on repos whose owner doesn't match the caller — register the repo root as
 # safe so `git status` / `git pull` work without arguing.
-if REPO_ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null)"; then
+#
+# Don't use `git rev-parse` here: that command itself trips the same
+# dubious-ownership refusal, so we'd never resolve the root. Compute it
+# from the script location (setup.sh lives at <repo>/tools/claude-code-aiaas/).
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+if [ -d "$REPO_ROOT/.git" ]; then
   git config --global --add safe.directory "$REPO_ROOT" 2>/dev/null || true
 fi
 
