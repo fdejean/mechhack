@@ -106,8 +106,12 @@ HF_REPOS = {
 def resolve_model_path(model_key: str, model_path: str | None) -> str:
     """Resolve to a local directory containing the HF snapshot.
 
-    Priority: explicit `model_path` > local `./models/<repo-name>` next to repo
-    > HF cache (snapshot_download with local_files_only) > raise.
+    Lookup order (first hit wins):
+      1. explicit --model_path / $MODEL_PATH
+      2. $HACKATHON_MODELS_DIR/<repo-name>            (custom override)
+      3. /data/models/<repo-name>                     (cluster RO mount)
+      4. <repo-root>/models/<repo-name>               (download_models.py default)
+      5. HF cache via snapshot_download(local_files_only=True)
     """
     from huggingface_hub import snapshot_download
     if model_path and Path(model_path).exists():
@@ -115,18 +119,24 @@ def resolve_model_path(model_key: str, model_path: str | None) -> str:
     repo_id = HF_REPOS.get(model_key)
     if not repo_id:
         raise ValueError(f"Unknown model_key {model_key!r}; pass --model_path explicitly.")
-    # Try ./models/<basename> next to the repo root
-    repo_root = Path(__file__).resolve().parent.parent
-    guess = repo_root / "models" / repo_id.split("/")[-1]
-    if guess.exists():
-        return str(guess)
+    repo_basename = repo_id.split("/")[-1]
+    candidates = []
+    if env := os.environ.get("HACKATHON_MODELS_DIR"):
+        candidates.append(Path(env) / repo_basename)
+    candidates.append(Path("/data/models") / repo_basename)
+    candidates.append(Path(__file__).resolve().parent.parent / "models" / repo_basename)
+    for c in candidates:
+        if c.exists():
+            return str(c)
     # Fall back to HF cache
     try:
         return snapshot_download(repo_id=repo_id, local_files_only=True)
     except Exception as e:
         raise FileNotFoundError(
-            f"Could not locate {model_key} ({repo_id}). "
-            f"Either pass --model_path, set MODEL_PATH, or run download_models.py first."
+            f"Could not locate {model_key} ({repo_id}). Tried:\n  "
+            + "\n  ".join(str(c) for c in candidates)
+            + f"\nEither pass --model_path, set MODEL_PATH / HACKATHON_MODELS_DIR, "
+            f"or run download_models.py first."
         ) from e
 
 

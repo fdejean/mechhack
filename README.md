@@ -156,17 +156,33 @@ cd tools/claude-code-aiaas
 
 Full walkthrough — including how the localhost proxy works and how to debug a hung request — in [`tools/claude-code-aiaas/README.md`](tools/claude-code-aiaas/README.md).
 
-### 3. (Only if you're extracting residuals locally) Download the target models
+### 3. (Only if you're extracting residuals locally) Get the target models
+
+The pod mounts a **read-only `/data/models/`** with both target models pre-staged:
+
+```
+/data/models/
+├── Gemma-4-31B-it/      ← google/gemma-4-31B-it, full snapshot
+└── Qwen3.6-27B/         ← Qwen/Qwen3.6-27B, full snapshot
+```
+
+Starter scripts auto-resolve to `/data/models/<repo>` first — no env vars needed, no `--model_path` flag, no download. Just run:
 
 ```bash
-# Both target models are gated on HF — accept the licenses, then set $HF_TOKEN:
+python starter_code/extract_residuals.py --model_key gemma4_31b
+```
+
+If you're working off-cluster (laptop / Colab / your own pod) and the RO mount isn't there, you can download into a writable spot:
+
+```bash
+# Both models are gated on HF — accept the licenses first:
 #   https://huggingface.co/google/gemma-4-31B-it
 #   https://huggingface.co/Qwen/Qwen3.6-27B
 export HF_TOKEN=hf_...
 python starter_code/download_models.py --out_dir ./models   # ~117 GB
 ```
 
-All starter scripts accept `--model_path` (or auto-resolve to `./models/<repo>` / HF cache). No hardcoded paths.
+Resolver lookup order (first hit wins): `--model_path` flag → `$HACKATHON_MODELS_DIR/<repo>` → `/data/models/<repo>` → `<repo-root>/models/<repo>` → HF cache.
 
 > **Off-cluster / laptop dev**: if you're working outside the pod (no image), install `torch transformers numpy httpx scikit-learn huggingface-hub` plus whatever your method needs. We don't ship a pinned `requirements.txt` — versions match the image, drift breaks things.
 

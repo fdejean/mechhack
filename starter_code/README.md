@@ -35,36 +35,35 @@ This is the *probe-shaped* starter path. If your Level-1 method is different (SA
 ```bash
 # Pod from registry.rcp.epfl.ch/mlo-protsenk/redteam-mechinterp:v7 has all
 # Python deps preinstalled — no pip install needed.
+# Models are pre-staged at /data/models/{Gemma-4-31B-it,Qwen3.6-27B} (read-only).
 # See ../README.md "Setup" for AIaaS key + Claude Code.
 
-# 1. Download model weights (or skip if already present in ./models/ or HF cache)
-export HF_TOKEN=hf_...
-python download_models.py --out_dir ../models
-
-# 2. Extract residuals — defaults to ONE middle layer
-python extract_residuals.py \
-    --model_path ../models/Gemma-4-31B-it \
-    --out_dir   ./extracts/gemma4_31b \
-    --layers    middle
+# 1. Extract residuals — auto-resolves /data/models/Gemma-4-31B-it
+python extract_residuals.py --model_key gemma4_31b --out_dir ./extracts/gemma4_31b
 
 # Other layer-spec options:
+#   --layers "middle"        single middle layer (default)
 #   --layers "10,30,50"      explicit list
 #   --layers "0:65:8"        python-range (start:stop:step)
 #   --layers "all"           every layer (~65× the disk)
 
-# 3. Train a probe (consumes the extracts above)
+# 2. Train a probe (consumes the extracts above)
 python train_probe.py \
     --extracts_dir ./extracts/gemma4_31b \
     --manifest    ./extracts/gemma4_31b/extraction_metadata.json \
     --out_dir     ./probes \
     --task        refusal_gemma4_31b
 
-# 4. Reference attribution baseline
+# 3. Reference attribution baseline
 python grad_input_baseline.py \
-    --model_path    ../models/Gemma-4-31B-it \
+    --model_key     gemma4_31b \
     --probe_weights ./probes/weights/refusal_gemma4_31b_attention.pt \
     --extracts_dir  ./extracts/gemma4_31b \
     --out_dir       ./edit_eval
+
+# Off-cluster fallback: if /data/models isn't mounted, download yourself:
+# export HF_TOKEN=hf_...
+# python download_models.py --out_dir ../models
 
 # 5. Iterative edit agent (Level 2 baseline)
 export OPENROUTER_KEY=sk-or-v1-...        # or AIAAS_KEY for EPFL AIaaS
