@@ -23,7 +23,11 @@ else
   URL="https://nodejs.org/dist/${NODE_VERSION}/${TARBALL}"
   echo "→ downloading $URL"
   curl -fsSL "$URL" -o "$VENDOR/$TARBALL"
-  tar -xJf "$VENDOR/$TARBALL" -C "$VENDOR/"
+  # --no-same-owner: the tarball ships uid/gid 1000, but on the cluster's
+  # NFS-backed /scratch root-squashing strips CAP_CHOWN and tar bombs on
+  # every entry. Drop ownership preservation; let extracted files inherit
+  # the writing user.
+  tar --no-same-owner -xJf "$VENDOR/$TARBALL" -C "$VENDOR/"
   rm "$VENDOR/$TARBALL"
   mv "$VENDOR/node-${NODE_VERSION}-linux-${NODE_ARCH}" "$VENDOR/node"
   echo "✓ node installed: $($VENDOR/node/bin/node --version)"
