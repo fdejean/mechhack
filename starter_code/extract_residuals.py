@@ -204,7 +204,10 @@ def main():
     print(f"GPU: {torch.cuda.get_device_name(0)}", flush=True)
 
     model, tok = load_model(model_key, model_path, torch.bfloat16)
-    n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
+    if hasattr(model.model, "language_model") and hasattr(model.model.language_model, "layers"):
+        n_layers = len(model.model.language_model.layers)
+    else:
+        n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
     layer_idxs = parse_layers(layers_spec, n_layers)
     print(f"{model_key} loaded | n_layers={n_layers} | extracting {len(layer_idxs)} layer(s): {layer_idxs}", flush=True)
 

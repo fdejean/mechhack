@@ -124,6 +124,11 @@ def _forward_with_hooks(model, ids, attn, layer_idxs):
             # Can't find embed module — fall back to output_hidden_states
             need_hs_fallback = True
 
+    if hasattr(model.model, "language_model") and hasattr(model.model.language_model, "layers"):
+        model_layers = model.model.language_model.layers
+    else:
+        model_layers = model.model.layers
+
     # Hooks for transformer block outputs (hidden_states[k] = output of block k-1)
     for lidx in layer_idxs:
         if lidx == 0:
@@ -131,7 +136,7 @@ def _forward_with_hooks(model, ids, attn, layer_idxs):
         def _block_hook(module, input, output, _lidx=lidx):
             h = output[0] if isinstance(output, tuple) else output
             captured[_lidx] = h.detach()
-        hooks.append(model.model.layers[lidx - 1].register_forward_hook(_block_hook))
+        hooks.append(model_layers[lidx - 1].register_forward_hook(_block_hook))
 
     try:
         with torch.inference_mode():
@@ -422,7 +427,10 @@ def main():
         device_map="cuda:0", trust_remote_code=True)
     model.eval()
 
-    n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
+    if hasattr(model.model, "language_model") and hasattr(model.model.language_model, "layers"):
+        n_layers = len(model.model.language_model.layers)
+    else:
+        n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
     layer_idxs = parse_layers(args.layers, n_layers)
     n_layers_sel = len(layer_idxs)
 
