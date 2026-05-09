@@ -1,0 +1,18 @@
+Level 1 — Probe AUC at layer 32, Gemma-4-31B
+============================================================
+  Refusal-Gemma                  attention/batch  AUC 0.914
+  Refusal-Qwen                   mlp/batch        AUC 0.841
+  Cyber-1 (dual_use vs benign)   mlp/batch        AUC 0.870
+  Cyber-2 (high_risk vs rest)    mlp/batch        AUC 0.858
+  Cyber-3 (prohibited vs rest)   linear/batch     AUC 0.930
+============================================================
+  MEAN AUC across 5 tasks: 0.883
+  STDEV: 0.038
+
+  Bonus — Benign-vs-rest:        linear/batch     AUC 0.987
+
+Setup:
+  - Activations from Gemma-4-31B layer 32 (middle of 64)
+  - Refusal: Gemma 876 samples, Qwen 878 samples
+  - Cyber:  7114 samples, 4 categories
+  - Probe types: linear / MLP / attention / 4-head attention × 5 seeds × 2 regimes
