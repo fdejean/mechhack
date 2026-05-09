@@ -11,3 +11,5 @@ __pycache__/
 
 # Logs
 *.log
+datasets/cyber_probes/all_fixed.jsonl
+datasets/cyber_probes/all.jsonl
