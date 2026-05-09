@@ -48,7 +48,7 @@ def find_last_real_token(attention_mask):
     return int(nz.max().item()) if len(nz) > 0 else 0
 
 
-def load_datasets(model_key):
+def load_datasets(model_key, sample_limit=0):
     """Load refusal + cyber datasets, return flat dicts."""
     base = Path(__file__).resolve().parent.parent / "datasets"
     refusal_all = [json.loads(l) for l in open(
@@ -57,6 +57,15 @@ def load_datasets(model_key):
         base / "cyber_probes" / "train.jsonl")]
     cyber_test = [json.loads(l) for l in open(
         base / "cyber_probes" / "test.jsonl")]
+    
+    if sample_limit > 0:
+        refusal_all = refusal_all[:sample_limit]
+        # Important: keep proportional train/test for cyber
+        train_lim = max(1, int(sample_limit * 0.7))
+        test_lim = max(1, sample_limit - train_lim)
+        cyber_train = cyber_train[:train_lim]
+        cyber_test = cyber_test[:test_lim]
+
     return {
         "refusal": refusal_all,
         "cyber": cyber_train + cyber_test,
@@ -333,10 +342,7 @@ def main():
           f"Compliance tokens: {len(compliance_ids)}", flush=True)
 
     # --- Load datasets ---
-    datasets = load_datasets(args.model_key)
-    if args.sample_limit > 0:
-        for k in datasets:
-            datasets[k] = datasets[k][:args.sample_limit]
+    datasets = load_datasets(args.model_key, args.sample_limit)
     print(f"Loaded: refusal={len(datasets['refusal'])}, "
           f"cyber={len(datasets['cyber'])}", flush=True)
 
