@@ -29,12 +29,16 @@ from __future__ import annotations
 import os, sys, json, time, argparse, random
 from pathlib import Path
 import numpy as np
+
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import torch
 
 sys.path.insert(0, str(Path(__file__).parent))
 from perturbation_engine import (
     combined_perturb, synonym_substitute, sentence_permute,
-    word_permute, token_attrib_to_word_scores, split_words_with_positions,
+    word_permute, vocabulary_scan, context_inject,
+    token_attrib_to_word_scores, split_words_with_positions,
 )
 from embedding_tracker import (
     input_embedding_distance, direction_loading_delta, compute_all_distances,
@@ -411,8 +415,8 @@ def parse_args():
     ap.add_argument("--out_dir", default="./level2_results")
     ap.add_argument("--sample_limit", type=int, default=20)
     ap.add_argument("--max_iters", type=int, default=5)
-    ap.add_argument("--strategies", default="synonym,sentence_perm,combined",
-                    help="Comma-separated strategies to cycle through")
+    ap.add_argument("--strategies", default="vocab_scan,context_inject,combined,full,vocab_scan+context_inject",
+                    help="Comma-separated strategies to cycle through per iteration")
     ap.add_argument("--judge", default="minimax-m2.7",
                     help="LLM judge model name")
     ap.add_argument("--seed", type=int, default=42)
@@ -463,7 +467,8 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         model_path, torch_dtype=torch.bfloat16,
         attn_implementation="sdpa",
-        device_map=DEVICE, trust_remote_code=True)
+        device_map=DEVICE, trust_remote_code=True,
+        low_cpu_mem_usage=True)
     model.eval()
 
     # ── Load judge ──
