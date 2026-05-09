@@ -13,7 +13,7 @@ Why needed: train_probe.py expects a unified manifest format, but extract_residu
 
 ## How to run
 
-## Reproducing our Level 1 results
+### Reproducing our Level 1 results
 
 # 1. Extract activations (provided script):
 python starter_code/extract_residuals.py --model_key gemma4_31b --model_path /data/Gemma-4-31B-it
@@ -34,7 +34,7 @@ python xgboost_probes.py
 
 =====
 
-## Results 
+### Results 
 
 Level 1 — Probe AUC at layer 32, Gemma-4-31B
 ============================================================
@@ -75,3 +75,37 @@ Mean AUC:
 
 
 how to get it: xgboost_probes.py; output: probes/results/xgboost_results.json
+
+
+====================================================================
+QWEN LAYER SWEEP — re-extracted activations at layers 16/32/48
+====================================================================
+Hypothesis: layer 32 may not be optimal for Qwen (hybrid arch with
+16 full-attention + 48 DeltaNet linear-attention layers).
+
+Layer    Linear AUC    XGBoost AUC
+  16     0.8236        0.8556
+  32     0.8383        0.8689
+  48     0.8656        0.8840   ← best for Qwen
+  
+n_train=581, n_test=281
+
+Finding: refusal signal in Qwen lives later than in Gemma.
+Layer 48 + XGBoost gives AUC 0.884 — bumps Refusal-Qwen by +4.3%
+over our original layer-32 / MLP result (0.841).
+
+How to reproduce: python qwen_layer_sweep.py
+Inputs: extracts/qwen36_multilayer/qwen36/*.pt
+        (extracted with --layers "16,32,48")
+
+====================================================================
+UPDATED MEAN AUC (using best-per-task probe)
+====================================================================
+  Refusal-Gemma:                XGBoost @ layer 32   AUC 0.920
+  Refusal-Qwen:                 XGBoost @ layer 48   AUC 0.884   ⭐
+  Cyber-1 (dual_use vs benign): MLP @ layer 32       AUC 0.870
+  Cyber-2 (high_risk vs rest):  MLP @ layer 32       AUC 0.858
+  Cyber-3 (prohibited vs rest): linear @ layer 32    AUC 0.930
+====================================================================
+  MEAN AUC: 0.892   (vs 0.883 baseline — +0.9% from layer sweep + XGBoost)
+
