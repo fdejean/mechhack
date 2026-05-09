@@ -105,12 +105,24 @@ def _forward_with_hooks(model, ids, attn, layer_idxs):
     """
     captured = {}
     hooks = []
+    # Whether we need output_hidden_states as fallback for layer 0
+    need_hs_fallback = False
 
     # Hook for embedding output (index 0 in hidden_states)
     if 0 in layer_idxs:
-        def _embed_hook(module, input, output):
-            captured[0] = output.detach()
-        hooks.append(model.model.embed_tokens.register_forward_hook(_embed_hook))
+        # Gemma4 uses embed_tokens_per_layer; standard models use embed_tokens
+        embed_module = None
+        for attr in ("embed_tokens", "embed_tokens_per_layer"):
+            if hasattr(model.model, attr):
+                embed_module = getattr(model.model, attr)
+                break
+        if embed_module is not None:
+            def _embed_hook(module, input, output):
+                captured[0] = output.detach()
+            hooks.append(embed_module.register_forward_hook(_embed_hook))
+        else:
+            # Can't find embed module — fall back to output_hidden_states
+            need_hs_fallback = True
 
     # Hooks for transformer block outputs (hidden_states[k] = output of block k-1)
     for lidx in layer_idxs:
@@ -123,8 +135,11 @@ def _forward_with_hooks(model, ids, attn, layer_idxs):
 
     try:
         with torch.inference_mode():
-            model(input_ids=ids, attention_mask=attn,
-                  output_hidden_states=False, return_dict=True)
+            out = model(input_ids=ids, attention_mask=attn,
+                        output_hidden_states=need_hs_fallback, return_dict=True)
+        if need_hs_fallback and 0 in layer_idxs:
+            captured[0] = out.hidden_states[0].detach()
+        del out
     finally:
         for h in hooks:
             h.remove()
