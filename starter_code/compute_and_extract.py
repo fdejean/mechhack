@@ -10,15 +10,12 @@ Usage on the pod:
     python compute_and_extract.py \
         --model_key gemma4_31b \
         --layers "0:62:4" \
-        --out_dir /scratch/hybrid
-
-    # Qwen (after Gemma finishes):
-    python compute_and_extract.py \
-        --model_key qwen36 \
-        --layers "0:66:4" \
-        --out_dir /scratch/hybrid
+        --out_dir /scratch/hybrid \
+        --num_gpus 4 --batch_size 8
 """
 import os, sys, json, time, argparse
+import math
+import multiprocessing as mp
 from pathlib import Path
 import numpy as np
 import torch
@@ -27,8 +24,6 @@ import torch.nn.functional as F
 sys.path.insert(0, str(Path(__file__).parent))
 from chunked_sdpa import chunked_sdpa_scope
 from extract_residuals import resolve_model_path, parse_layers, HF_REPOS
-
-DEVICE = "cuda:0"
 
 # ---------- token sets for logit lens ----------
 REFUSAL_STARTERS = [
@@ -39,13 +34,6 @@ COMPLIANCE_STARTERS = [
     "Sure", "Here", "Certainly", "Of", "The", "To",
     "Let", "Below", "This", "def", "import",
 ]
-
-
-def find_last_real_token(attention_mask):
-    """Index of last non-padding token."""
-    m = attention_mask[0] if attention_mask.dim() > 1 else attention_mask
-    nz = m.nonzero()
-    return int(nz.max().item()) if len(nz) > 0 else 0
 
 
 def load_datasets(model_key, sample_limit=0):
@@ -104,72 +92,113 @@ def get_task_samples(datasets, task_name, model_key):
 
 # ---------- forward pass + caching ----------
 def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
-                      layer_idxs, use_chunked):
-    """Forward all unique samples, cache last-token residuals per layer.
-
-    Args:
-        all_samples: list of sample dicts (deduplicated by sample_id)
-        prompt_key_map: dict mapping sample_id -> prompt_key
-        layer_idxs: list of layer indices to extract
-    Returns:
-        cache: dict sid -> {last_tok: (n_layers_sel, d_model), n_tokens: int}
-    """
+                      layer_idxs, use_chunked, batch_size=8, device="cuda:0"):
+    """Forward unique samples with batching, cache last-token residuals."""
     cache = {}
     cm = chunked_sdpa_scope() if use_chunked else None
     if cm is not None:
         cm.__enter__()
 
+    # For reliable last-token extraction across batched generations
+    tokenizer.padding_side = "right"
+
     t_start = time.time()
     try:
-        for i, s in enumerate(all_samples):
-            sid = s["sample_id"]
-            if sid in cache:
+        # We handle batched processing, with a fallback to size 1 if OOM occurs
+        i = 0
+        while i < len(all_samples):
+            # Form batch
+            batch_samples = []
+            while len(batch_samples) < batch_size and i < len(all_samples):
+                if all_samples[i]["sample_id"] not in cache:
+                    batch_samples.append(all_samples[i])
+                i += 1
+                
+            if not batch_samples:
                 continue
-
-            pk = prompt_key_map[sid]
-            prompt = s[pk]
-            txt = tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}],
-                tokenize=False, add_generation_prompt=True,
-            )
-            enc = tokenizer(txt, return_tensors="pt").to(DEVICE)
+                
+            prompts = [s[prompt_key_map[s["sample_id"]]] for s in batch_samples]
+            texts = [
+                tokenizer.apply_chat_template(
+                    [{"role": "user", "content": p}],
+                    tokenize=False, add_generation_prompt=True,
+                ) for p in prompts
+            ]
+            
+            enc = tokenizer(texts, return_tensors="pt", padding=True).to(device)
             ids, attn = enc.input_ids, enc.attention_mask
-            n_tok = int(ids.shape[1])
+            
             torch.cuda.empty_cache()
+            
             try:
-                with torch.inference_mode(): # Use inference_mode instead of no_grad for max memory savings
+                with torch.inference_mode():
                     out = model(input_ids=ids, attention_mask=attn,
                                 output_hidden_states=True, return_dict=True)
 
                 hs = out.hidden_states
-                last_idx = find_last_real_token(attn)
-                last_tok = torch.stack(
-                    [hs[k][0, last_idx, :] for k in layer_idxs], dim=0
-                ).cpu().float()  # (n_layers_sel, d_model)
+                
+                # Length of each sequence ignoring right-padding
+                lengths = attn.sum(dim=1) - 1
+                
+                for b_idx, s in enumerate(batch_samples):
+                    sid = s["sample_id"]
+                    n_tok = int(lengths[b_idx].item() + 1)
+                    last_idx = int(lengths[b_idx].item())
+                    
+                    last_tok = torch.stack(
+                        [hs[k][b_idx, last_idx, :] for k in layer_idxs], dim=0
+                    ).cpu().float()  # (n_layers_sel, d_model)
 
-                cache[sid] = {"last_tok": last_tok, "n_tokens": n_tok}
+                    cache[sid] = {"last_tok": last_tok, "n_tokens": n_tok}
+
                 del out, hs
+
             except (torch.OutOfMemoryError, RuntimeError) as e:
-                if "out of memory" not in str(e).lower():
+                if "out of memory" not in str(e).lower() or batch_size == 1:
                     raise
-                print(f"  [{i+1}/{len(all_samples)}] {sid}: SKIPPING DUE TO OOM (n_tok={n_tok})", flush=True)
-                continue # Skip the progress print since we already printed the OOM message
+                print(f"  [{device}] OOM with batch_size={batch_size}, retrying sequentially...", flush=True)
+                # Rewind and retry with batch size 1
+                i -= len(batch_samples)
+                # temporarily drop batch size for this failing set
+                for fallback_s in batch_samples:
+                    if fallback_s["sample_id"] in cache: continue
+                    try:
+                        f_txt = tokenizer.apply_chat_template(
+                            [{"role": "user", "content": fallback_s[prompt_key_map[fallback_s["sample_id"]]]}],
+                            tokenize=False, add_generation_prompt=True,
+                        )
+                        f_enc = tokenizer(f_txt, return_tensors="pt").to(device)
+                        with torch.inference_mode():
+                            f_out = model(input_ids=f_enc.input_ids, attention_mask=f_enc.attention_mask,
+                                          output_hidden_states=True, return_dict=True)
+                        last_idx = int(f_enc.attention_mask.sum().item() - 1)
+                        f_last_tok = torch.stack(
+                            [f_out.hidden_states[k][0, last_idx, :] for k in layer_idxs], dim=0
+                        ).cpu().float()
+                        cache[fallback_s["sample_id"]] = {"last_tok": f_last_tok, "n_tokens": last_idx + 1}
+                        del f_out
+                    except Exception as fallback_e:
+                        print(f"  [{device}] SKIPPING {fallback_s['sample_id']} due to OOM: {fallback_e}", flush=True)
+                    finally:
+                        del f_enc
+                        torch.cuda.empty_cache()
+                # Skip the batch we just manually processed
+                i += len(batch_samples)
             finally:
                 del enc, ids, attn
                 torch.cuda.empty_cache()
 
-            if (i + 1) % 20 == 0 or (i + 1) == len(all_samples):
+            if i % (batch_size * 5) < batch_size or i == len(all_samples):
                 elapsed = time.time() - t_start
-                rate = (i + 1) / elapsed
-                eta = (len(all_samples) - (i + 1)) / max(rate, 1e-3) / 60
-                print(f"  [{i+1}/{len(all_samples)}] {sid}: "
-                      f"n_tok={n_tok} | {rate:.2f}/s eta={eta:.1f}min",
-                      flush=True)
+                rate = i / elapsed
+                eta = (len(all_samples) - i) / max(rate, 1e-3) / 60
+                print(f"  [{device}] [{i}/{len(all_samples)}] "
+                      f"rate={rate:.2f}/s eta={eta:.1f}min", flush=True)
     finally:
         if cm is not None:
             cm.__exit__(None, None, None)
 
-    print(f"  Cached {len(cache)} samples in "
+    print(f"  [{device}] Cached {len(cache)} samples in "
           f"{(time.time() - t_start)/60:.1f} min", flush=True)
     return cache
 
@@ -206,18 +235,8 @@ def compute_direction(cache, samples, label_fn):
 # ---------- feature extraction ----------
 def compute_logit_lens_features(last_tok_residuals, W_U,
                                 refusal_ids, compliance_ids):
-    """Compute logit-lens features from last-token residuals.
-
-    Args:
-        last_tok_residuals: (n_layers, d_model)
-        W_U: (vocab_size, d_model)
-    Returns:
-        refusal_probs: (n_layers,) — sum of softmax probs on refusal tokens
-        compliance_probs: (n_layers,) — sum on compliance tokens
-    """
-    # (n_layers, vocab_size) = (n_layers, d_model) @ (d_model, vocab_size)
+    """Compute logit-lens features from last-token residuals."""
     logits = last_tok_residuals @ W_U.T
-    # Softmax per layer
     probs = F.softmax(logits, dim=-1)  # (n_layers, vocab_size)
     refusal_probs = probs[:, refusal_ids].sum(dim=-1)      # (n_layers,)
     compliance_probs = probs[:, compliance_ids].sum(dim=-1)  # (n_layers,)
@@ -226,11 +245,7 @@ def compute_logit_lens_features(last_tok_residuals, W_U,
 
 def extract_features_for_task(cache, samples, label_fn, direction,
                               W_U, refusal_ids, compliance_ids, n_layers_sel):
-    """Build feature matrix for one task.
-
-    Returns: X (n_samples, n_features), y (n_samples,), ids (n_samples,),
-             splits (n_samples,), feature_names (n_features,)
-    """
+    """Build feature matrix for one task."""
     X_rows, y_list, id_list, split_list = [], [], [], []
 
     for s in samples:
@@ -241,14 +256,10 @@ def extract_features_for_task(cache, samples, label_fn, direction,
         r = cache[sid]["last_tok"]  # (n_layers, d_model)
         n_tok = cache[sid]["n_tokens"]
 
-        # --- Direction-based features (per layer) ---
         dir_loading = (r * direction).sum(dim=-1).numpy()  # (n_layers,)
-
-        # --- Logit lens features (per layer) ---
         ref_p, comp_p = compute_logit_lens_features(
             r, W_U, refusal_ids, compliance_ids)
 
-        # --- Derived features ---
         dir_diff = np.diff(dir_loading)
         transition_layer = float(np.argmax(np.abs(dir_diff)))
         peak_layer = float(np.argmax(dir_loading))
@@ -256,7 +267,6 @@ def extract_features_for_task(cache, samples, label_fn, direction,
         max_ratio = float(np.max(
             np.log(ref_p.clip(1e-10) / comp_p.clip(1e-10))))
 
-        # --- Assemble feature vector ---
         feats = np.concatenate([
             dir_loading,                              # n_layers
             ref_p,                                    # n_layers
@@ -272,7 +282,6 @@ def extract_features_for_task(cache, samples, label_fn, direction,
     X = np.stack(X_rows, axis=0).astype(np.float32)
     y = np.array(y_list, dtype=np.int32)
 
-    # Feature names
     names = []
     for prefix in ["dir_loading", "logit_refusal", "logit_compliance"]:
         for l in range(n_layers_sel):
@@ -281,6 +290,33 @@ def extract_features_for_task(cache, samples, label_fn, direction,
               "max_logit_ratio", "n_tokens"]
 
     return X, y, id_list, split_list, names
+
+
+# ---------- multiprocessing worker ----------
+def extract_worker(rank, args, all_samples_chunk, prompt_key_map, layer_idxs, use_chunked, out_dir):
+    """Worker process that loads model on cuda:<rank> and extracts features."""
+    device = f"cuda:{rank}"
+    print(f"[{device}] Worker started, processing {len(all_samples_chunk)} samples...", flush=True)
+    
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    model_path = resolve_model_path(args.model_key, args.model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=torch.bfloat16,
+        attn_implementation="sdpa",
+        device_map=device, trust_remote_code=True)
+    model.eval()
+
+    cache = forward_and_cache(
+        model, tokenizer, all_samples_chunk, prompt_key_map,
+        layer_idxs, use_chunked, args.batch_size, device)
+        
+    tmp_path = out_dir / f"tmp_cache_shard_{rank}.pt"
+    torch.save(cache, tmp_path)
+    print(f"[{device}] Saved {len(cache)} items to {tmp_path}", flush=True)
 
 
 # ---------- main ----------
@@ -295,6 +331,10 @@ def parse_args():
     ap.add_argument("--out_dir", default="./hybrid_artifacts")
     ap.add_argument("--sample_limit", type=int, default=0,
                     help="Limit samples per dataset (0 = all, useful for testing)")
+    ap.add_argument("--num_gpus", type=int, default=1,
+                    help="Number of GPUs to run data-parallel extraction on")
+    ap.add_argument("--batch_size", type=int, default=8,
+                    help="Batch size per GPU for extraction")
     return ap.parse_args()
 
 
@@ -303,34 +343,33 @@ def main():
     out_dir = Path(args.out_dir) / args.model_key
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"=== Hybrid Pipeline: {args.model_key} layers={args.layers} ===",
-          flush=True)
+    print(f"=== Hybrid Pipeline: {args.model_key} layers={args.layers} ===", flush=True)
+    print(f"GPUs: {args.num_gpus}, Batch Size: {args.batch_size}", flush=True)
 
-    # --- Load model ---
     from transformers import AutoTokenizer, AutoModelForCausalLM
     model_path = resolve_model_path(args.model_key, args.model_path)
-    print(f"Loading model from {model_path}", flush=True)
+    
+    # 1. Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+        
+    # 2. Extract W_U quickly on cuda:0
+    print(f"Loading model briefly on cuda:0 to extract W_U...", flush=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_path, torch_dtype=torch.bfloat16,
         attn_implementation="sdpa",
-        device_map=DEVICE, trust_remote_code=True)
+        device_map="cuda:0", trust_remote_code=True)
     model.eval()
 
     n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
     layer_idxs = parse_layers(args.layers, n_layers)
     n_layers_sel = len(layer_idxs)
-    print(f"n_layers={n_layers}, extracting {n_layers_sel}: {layer_idxs}",
-          flush=True)
 
-    # --- Save W_U (unembedding matrix) ---
     W_U = model.lm_head.weight.detach().cpu().float()  # (vocab, d_model)
     torch.save(W_U, str(out_dir / "W_U.pt"))
     print(f"Saved W_U: {W_U.shape}", flush=True)
 
-    # --- Resolve token IDs for logit lens ---
     def resolve_token_ids(words):
         ids = []
         for w in words:
@@ -345,15 +384,16 @@ def main():
               open(out_dir / "refusal_token_ids.json", "w"))
     json.dump({"ids": compliance_ids, "words": COMPLIANCE_STARTERS},
               open(out_dir / "compliance_token_ids.json", "w"))
-    print(f"Refusal tokens: {len(refusal_ids)}, "
-          f"Compliance tokens: {len(compliance_ids)}", flush=True)
 
-    # --- Load datasets ---
+    # Free model VRAM
+    del model
+    torch.cuda.empty_cache()
+    print("Model freed from GPU\n", flush=True)
+
+    # 3. Load datasets and prepare samples
     datasets = load_datasets(args.model_key, args.sample_limit)
-    print(f"Loaded: refusal={len(datasets['refusal'])}, "
-          f"cyber={len(datasets['cyber'])}", flush=True)
+    print(f"Loaded: refusal={len(datasets['refusal'])}, cyber={len(datasets['cyber'])}", flush=True)
 
-    # --- Collect all unique samples + their prompt keys ---
     all_samples = {}
     prompt_key_map = {}
     for s in datasets["refusal"]:
@@ -364,34 +404,64 @@ def main():
         prompt_key_map[s["sample_id"]] = "prompt"
 
     all_samples_list = list(all_samples.values())
-    print(f"Total unique samples to forward: {len(all_samples_list)}", flush=True)
-
-    # --- Forward pass: cache all last-token residuals ---
+    print(f"Total unique samples to forward: {len(all_samples_list)}\n", flush=True)
     use_chunked = (args.model_key == "gemma4_31b")
-    cache = forward_and_cache(
-        model, tokenizer, all_samples_list, prompt_key_map,
-        layer_idxs, use_chunked)
 
-    # Free model VRAM
-    del model
-    torch.cuda.empty_cache()
-    print("Model freed from GPU", flush=True)
+    # 4. Multiprocessing Extraction
+    if args.num_gpus > 1:
+        mp.set_start_method("spawn", force=True)
+        chunk_size = math.ceil(len(all_samples_list) / args.num_gpus)
+        processes = []
+        
+        for rank in range(args.num_gpus):
+            chunk = all_samples_list[rank * chunk_size : (rank + 1) * chunk_size]
+            if not chunk: continue
+            
+            p = mp.Process(target=extract_worker, args=(
+                rank, args, chunk, prompt_key_map, layer_idxs, use_chunked, out_dir
+            ))
+            p.start()
+            processes.append((rank, p))
+            
+        for rank, p in processes:
+            p.join()
+            if p.exitcode != 0:
+                print(f"ERROR: Worker {rank} failed with exitcode {p.exitcode}", flush=True)
+                sys.exit(1)
+                
+        # Merge caches
+        cache = {}
+        for rank in range(args.num_gpus):
+            tmp_path = out_dir / f"tmp_cache_shard_{rank}.pt"
+            if tmp_path.exists():
+                shard_cache = torch.load(tmp_path, weights_only=False)
+                cache.update(shard_cache)
+                tmp_path.unlink() # Clean up
+        print(f"\nMerged {len(cache)} cached samples from all workers.", flush=True)
+    else:
+        # Sequential on 1 GPU
+        print("Running sequential extraction on cuda:0...", flush=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path, torch_dtype=torch.bfloat16,
+            attn_implementation="sdpa",
+            device_map="cuda:0", trust_remote_code=True)
+        model.eval()
+        cache = forward_and_cache(
+            model, tokenizer, all_samples_list, prompt_key_map,
+            layer_idxs, use_chunked, args.batch_size, "cuda:0")
+        del model
+        torch.cuda.empty_cache()
 
-    # --- Per-task: compute directions + extract features ---
-    task_names = [f"refusal_{args.model_key}",
-                  "cyber_probe1", "cyber_probe2", "cyber_probe3"]
+    # 5. Compute Directions & Features
+    task_names = [f"refusal_{args.model_key}", "cyber_probe1", "cyber_probe2", "cyber_probe3"]
 
     for task_name in task_names:
         print(f"\n=== Task: {task_name} ===", flush=True)
         samples, label_fn, prompt_key = get_task_samples(
             datasets, task_name, args.model_key)
 
-        # Train samples for direction
         train_samples = [s for s in samples if s.get("split") == "train"]
-        print(f"  Total samples: {len(samples)}, train: {len(train_samples)}",
-              flush=True)
-
-        # Compute direction from train
+        
         try:
             direction, dir_norms = compute_direction(
                 cache, train_samples, label_fn)
@@ -402,12 +472,9 @@ def main():
             print(f"  Skipping task {task_name}: {e}", flush=True)
             continue
 
-        # Per-layer AUC with direction only (diagnostic)
         print("  Per-layer direction AUC (train):", flush=True)
-        _print_per_layer_auc(cache, train_samples, label_fn, direction,
-                             layer_idxs)
+        _print_per_layer_auc(cache, train_samples, label_fn, direction, layer_idxs)
 
-        # Extract features
         X, y, ids, splits, feat_names = extract_features_for_task(
             cache, samples, label_fn, direction,
             W_U, refusal_ids, compliance_ids, n_layers_sel)
@@ -415,10 +482,8 @@ def main():
         np.savez(str(out_dir / f"features_{task_name}.npz"),
                  X=X, y=y, sample_ids=ids, splits=splits,
                  feature_names=feat_names, layer_idxs=layer_idxs)
-        print(f"  Saved features: X={X.shape} "
-              f"(pos={y.sum()}, neg={len(y)-y.sum()})", flush=True)
+        print(f"  Saved features: X={X.shape} (pos={y.sum()}, neg={len(y)-y.sum()})", flush=True)
 
-    # Save layer config
     json.dump({"layer_idxs": layer_idxs, "n_layers_model": n_layers,
                "model_key": args.model_key, "layers_spec": args.layers},
               open(out_dir / "config.json", "w"), indent=2)
@@ -427,7 +492,6 @@ def main():
 
 
 def _print_per_layer_auc(cache, samples, label_fn, direction, layer_idxs):
-    """Quick diagnostic: AUC of dot(residual, direction) per layer."""
     try:
         from sklearn.metrics import roc_auc_score
     except ImportError:
@@ -448,7 +512,6 @@ def _print_per_layer_auc(cache, samples, label_fn, direction, layer_idxs):
 
     labels = np.array(labels)
     if len(set(labels)) < 2:
-        print("    (single class, skipping)", flush=True)
         return
 
     for l in range(n_layers):
