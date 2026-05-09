@@ -11,7 +11,7 @@ Usage on the pod:
         --model_key gemma4_31b \
         --layers "0:62:4" \
         --out_dir /scratch/hybrid \
-        --num_gpus 4 --batch_size 8
+        --num_gpus 4 --batch_size 1
 """
 import os, sys, json, time, argparse
 import math
@@ -161,16 +161,7 @@ def _extract_wu_and_config(model_path):
             W_U = f.get_tensor(lm_key).float()
         return W_U, n_layers
 
-    # Fallback: load model on CPU
-    from transformers import AutoModelForCausalLM
-    print("  (fallback: loading full model on CPU for W_U extraction)", flush=True)
-    m = AutoModelForCausalLM.from_pretrained(
-        str(model_path), torch_dtype=torch.bfloat16,
-        device_map="cpu", trust_remote_code=True)
-    W_U = m.lm_head.weight.detach().float()
-    n_layers = len(m.model.layers) if hasattr(m.model, "layers") else n_layers
-    del m
-    return W_U, n_layers
+    raise RuntimeError("Could not find W_U in safetensors. CPU fallback is disabled.")
 
 
 # ---------- forward pass + caching ----------
