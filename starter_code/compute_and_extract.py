@@ -18,6 +18,10 @@ import math
 import multiprocessing as mp
 from pathlib import Path
 import numpy as np
+
+# Reduce CUDA fragmentation — must be set before torch import
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import torch
 import torch.nn.functional as F
 
@@ -90,6 +94,85 @@ def get_task_samples(datasets, task_name, model_key):
         return samples, label_fn, "prompt"
 
 
+# ---------- forward hooks (memory-efficient) ----------
+def _forward_with_hooks(model, ids, attn, layer_idxs):
+    """Forward pass capturing only selected layer residuals via hooks.
+
+    Much more memory-efficient than output_hidden_states=True, which
+    materialises ALL layers (~65 for Gemma-4-31B).  With hooks we only
+    keep the ~16 we actually need.
+    """
+    captured = {}
+    hooks = []
+
+    # Hook for embedding output (index 0 in hidden_states)
+    if 0 in layer_idxs:
+        def _embed_hook(module, input, output):
+            captured[0] = output.detach()
+        hooks.append(model.model.embed_tokens.register_forward_hook(_embed_hook))
+
+    # Hooks for transformer-block outputs (index k → block k-1)
+    for lidx in layer_idxs:
+        if lidx == 0:
+            continue
+        def _block_hook(module, input, output, _lidx=lidx):
+            h = output[0] if isinstance(output, tuple) else output
+            captured[_lidx] = h.detach()
+        hooks.append(model.model.layers[lidx - 1].register_forward_hook(_block_hook))
+
+    try:
+        with torch.inference_mode():
+            model(input_ids=ids, attention_mask=attn,
+                  output_hidden_states=False, return_dict=True)
+    finally:
+        for h in hooks:
+            h.remove()
+
+    return captured
+
+
+def _extract_wu_and_config(model_path):
+    """Extract W_U and n_layers WITHOUT loading the full model onto a GPU."""
+    model_path = Path(model_path)
+
+    # n_layers from config.json
+    config = json.loads((model_path / "config.json").read_text())
+    n_layers = config.get("num_hidden_layers", 64)
+
+    # Try safetensors index first (loads only the one tensor we need)
+    index_path = model_path / "model.safetensors.index.json"
+    if index_path.exists():
+        from safetensors import safe_open
+        index = json.loads(index_path.read_text())
+        wmap = index.get("weight_map", {})
+        lm_key = "lm_head.weight" if "lm_head.weight" in wmap else "model.embed_tokens.weight"
+        if lm_key in wmap:
+            shard = model_path / wmap[lm_key]
+            with safe_open(str(shard), framework="pt", device="cpu") as f:
+                W_U = f.get_tensor(lm_key).float()
+            return W_U, n_layers
+
+    # Single safetensors file
+    single_st = model_path / "model.safetensors"
+    if single_st.exists():
+        from safetensors import safe_open
+        with safe_open(str(single_st), framework="pt", device="cpu") as f:
+            lm_key = "lm_head.weight" if "lm_head.weight" in f.keys() else "model.embed_tokens.weight"
+            W_U = f.get_tensor(lm_key).float()
+        return W_U, n_layers
+
+    # Fallback: load model on CPU
+    from transformers import AutoModelForCausalLM
+    print("  (fallback: loading full model on CPU for W_U extraction)", flush=True)
+    m = AutoModelForCausalLM.from_pretrained(
+        str(model_path), torch_dtype=torch.bfloat16,
+        device_map="cpu", trust_remote_code=True)
+    W_U = m.lm_head.weight.detach().float()
+    n_layers = len(m.model.layers) if hasattr(m.model, "layers") else n_layers
+    del m
+    return W_U, n_layers
+
+
 # ---------- forward pass + caching ----------
 def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                       layer_idxs, use_chunked, batch_size=8, device="cuda:0"):
@@ -131,29 +214,31 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
             torch.cuda.empty_cache()
             
             try:
-                with torch.inference_mode():
-                    out = model(input_ids=ids, attention_mask=attn,
-                                output_hidden_states=True, return_dict=True)
+                captured = _forward_with_hooks(model, ids, attn, layer_idxs)
 
-                hs = out.hidden_states
-                
                 # Length of each sequence ignoring right-padding
                 lengths = attn.sum(dim=1) - 1
-                
+
                 for b_idx, s in enumerate(batch_samples):
                     sid = s["sample_id"]
                     n_tok = int(lengths[b_idx].item() + 1)
                     last_idx = int(lengths[b_idx].item())
-                    
+
                     last_tok = torch.stack(
-                        [hs[k][b_idx, last_idx, :] for k in layer_idxs], dim=0
+                        [captured[k][b_idx, last_idx, :] for k in layer_idxs], dim=0
                     ).cpu().float()  # (n_layers_sel, d_model)
 
                     cache[sid] = {"last_tok": last_tok, "n_tokens": n_tok}
 
-                del out, hs
+                del captured
 
             except (torch.OutOfMemoryError, RuntimeError) as e:
+                if 'enc' in locals(): del enc
+                if 'ids' in locals(): del ids
+                if 'attn' in locals(): del attn
+                if 'captured' in locals(): del captured
+                torch.cuda.empty_cache()
+                
                 if "out of memory" not in str(e).lower() or batch_size == 1:
                     raise
                 print(f"  [{device}] OOM with batch_size={batch_size}, retrying sequentially...", flush=True)
@@ -168,15 +253,14 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                             tokenize=False, add_generation_prompt=True,
                         )
                         f_enc = tokenizer(f_txt, return_tensors="pt").to(device)
-                        with torch.inference_mode():
-                            f_out = model(input_ids=f_enc.input_ids, attention_mask=f_enc.attention_mask,
-                                          output_hidden_states=True, return_dict=True)
+                        f_captured = _forward_with_hooks(
+                            model, f_enc.input_ids, f_enc.attention_mask, layer_idxs)
                         last_idx = int(f_enc.attention_mask.sum().item() - 1)
                         f_last_tok = torch.stack(
-                            [f_out.hidden_states[k][0, last_idx, :] for k in layer_idxs], dim=0
+                            [f_captured[k][0, last_idx, :] for k in layer_idxs], dim=0
                         ).cpu().float()
                         cache[fallback_s["sample_id"]] = {"last_tok": f_last_tok, "n_tokens": last_idx + 1}
-                        del f_out
+                        del f_captured
                     except Exception as fallback_e:
                         print(f"  [{device}] SKIPPING {fallback_s['sample_id']} due to OOM: {fallback_e}", flush=True)
                     finally:
@@ -185,7 +269,9 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                 # Skip the batch we just manually processed
                 i += len(batch_samples)
             finally:
-                del enc, ids, attn
+                if 'enc' in locals(): del enc
+                if 'ids' in locals(): del ids
+                if 'attn' in locals(): del attn
                 torch.cuda.empty_cache()
 
             if i % (batch_size * 5) < batch_size or i == len(all_samples):
@@ -333,7 +419,7 @@ def parse_args():
                     help="Limit samples per dataset (0 = all, useful for testing)")
     ap.add_argument("--num_gpus", type=int, default=1,
                     help="Number of GPUs to run data-parallel extraction on")
-    ap.add_argument("--batch_size", type=int, default=8,
+    ap.add_argument("--batch_size", type=int, default=2,
                     help="Batch size per GPU for extraction")
     return ap.parse_args()
 
@@ -354,21 +440,14 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         
-    # 2. Extract W_U quickly on cuda:0
-    print(f"Loading model briefly on cuda:0 to extract W_U...", flush=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=torch.bfloat16,
-        attn_implementation="sdpa",
-        device_map="cuda:0", trust_remote_code=True)
-    model.eval()
-
-    n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
+    # 2. Extract W_U directly from safetensors (no GPU needed)
+    print(f"Extracting W_U from safetensors (no full model load)...", flush=True)
+    W_U, n_layers = _extract_wu_and_config(model_path)
     layer_idxs = parse_layers(args.layers, n_layers)
     n_layers_sel = len(layer_idxs)
 
-    W_U = model.lm_head.weight.detach().cpu().float()  # (vocab, d_model)
     torch.save(W_U, str(out_dir / "W_U.pt"))
-    print(f"Saved W_U: {W_U.shape}", flush=True)
+    print(f"Saved W_U: {W_U.shape}, n_layers={n_layers}", flush=True)
 
     def resolve_token_ids(words):
         ids = []
@@ -384,11 +463,7 @@ def main():
               open(out_dir / "refusal_token_ids.json", "w"))
     json.dump({"ids": compliance_ids, "words": COMPLIANCE_STARTERS},
               open(out_dir / "compliance_token_ids.json", "w"))
-
-    # Free model VRAM
-    del model
-    torch.cuda.empty_cache()
-    print("Model freed from GPU\n", flush=True)
+    print("W_U extracted without GPU\n", flush=True)
 
     # 3. Load datasets and prepare samples
     datasets = load_datasets(args.model_key, args.sample_limit)
