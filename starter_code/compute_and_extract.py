@@ -136,7 +136,7 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
             ids, attn = enc.input_ids, enc.attention_mask
 
             torch.cuda.empty_cache()
-            with torch.no_grad():
+            with torch.inference_mode(): # Use inference_mode instead of no_grad for max memory savings
                 out = model(input_ids=ids, attention_mask=attn,
                             output_hidden_states=True, return_dict=True)
 
@@ -148,7 +148,7 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
 
             cache[sid] = {"last_tok": last_tok, "n_tokens": int(ids.shape[1])}
 
-            del out, hs
+            del out, hs, ids, attn, enc
             torch.cuda.empty_cache()
 
             if (i + 1) % 20 == 0 or (i + 1) == len(all_samples):
