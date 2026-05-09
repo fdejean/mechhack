@@ -134,22 +134,27 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
             )
             enc = tokenizer(txt, return_tensors="pt").to(DEVICE)
             ids, attn = enc.input_ids, enc.attention_mask
-
             torch.cuda.empty_cache()
-            with torch.inference_mode(): # Use inference_mode instead of no_grad for max memory savings
-                out = model(input_ids=ids, attention_mask=attn,
-                            output_hidden_states=True, return_dict=True)
+            try:
+                with torch.inference_mode(): # Use inference_mode instead of no_grad for max memory savings
+                    out = model(input_ids=ids, attention_mask=attn,
+                                output_hidden_states=True, return_dict=True)
 
-            hs = out.hidden_states
-            last_idx = find_last_real_token(attn)
-            last_tok = torch.stack(
-                [hs[k][0, last_idx, :] for k in layer_idxs], dim=0
-            ).cpu().float()  # (n_layers_sel, d_model)
+                hs = out.hidden_states
+                last_idx = find_last_real_token(attn)
+                last_tok = torch.stack(
+                    [hs[k][0, last_idx, :] for k in layer_idxs], dim=0
+                ).cpu().float()  # (n_layers_sel, d_model)
 
-            cache[sid] = {"last_tok": last_tok, "n_tokens": int(ids.shape[1])}
-
-            del out, hs, ids, attn, enc
-            torch.cuda.empty_cache()
+                cache[sid] = {"last_tok": last_tok, "n_tokens": int(ids.shape[1])}
+                del out, hs
+            except (torch.OutOfMemoryError, RuntimeError) as e:
+                if "out of memory" not in str(e).lower():
+                    raise
+                print(f"  [{i+1}/{len(all_samples)}] {sid}: SKIPPING DUE TO OOM (n_tok={int(ids.shape[1])})", flush=True)
+            finally:
+                del enc, ids, attn
+                torch.cuda.empty_cache()
 
             if (i + 1) % 20 == 0 or (i + 1) == len(all_samples):
                 elapsed = time.time() - t_start
