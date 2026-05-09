@@ -16,3 +16,19 @@ Setup:
   - Refusal: Gemma 876 samples, Qwen 878 samples
   - Cyber:  7114 samples, 4 categories
   - Probe types: linear / MLP / attention / 4-head attention × 5 seeds × 2 regimes
+
+
+XGBoost 
+
+root@dev-pod-0-1:/scratch# python /scratch/mechhack/xgboost_probes.py
+Task                           XGBoost AUC 
+==================================================
+refusal_gemma4_31b             0.9203     (n_train=561, n_test=277)
+refusal_qwen36                 0.8689     (n_train=581, n_test=281)
+cyber_dual_use                 0.8655     (n_train=1304, n_test=546)
+cyber_high_risk_dual_use       0.8394     (n_train=2042, n_test=864)
+cyber_prohibited               0.8956     (n_train=3569, n_test=1551)
+
+Mean AUC: 
+  0.8779
+
