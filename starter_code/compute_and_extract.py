@@ -11,7 +11,7 @@ Usage on the pod:
         --model_key gemma4_31b \
         --layers "0:62:4" \
         --out_dir /scratch/hybrid \
-        --num_gpus 4 --batch_size 1
+        --num_gpus 4 --batch_size 8
 """
 import os, sys, json, time, argparse
 import math
@@ -19,7 +19,6 @@ import multiprocessing as mp
 from pathlib import Path
 import numpy as np
 
-# Reduce CUDA fragmentation — must be set before torch import
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
@@ -94,13 +93,15 @@ def get_task_samples(datasets, task_name, model_key):
         return samples, label_fn, "prompt"
 
 
-# ---------- forward hooks (memory-efficient) ----------
+# ---------- hook-based forward ----------
 def _forward_with_hooks(model, ids, attn, layer_idxs):
     """Forward pass capturing only selected layer residuals via hooks.
 
-    Much more memory-efficient than output_hidden_states=True, which
-    materialises ALL layers (~65 for Gemma-4-31B).  With hooks we only
-    keep the ~16 we actually need.
+    Much more memory-efficient than output_hidden_states=True which
+    materializes ALL layers (65 for Gemma-4-31B). With hooks we only
+    keep the ~16 layers we actually need.
+
+    Returns dict mapping layer_idx -> hidden_state tensor on the same device.
     """
     captured = {}
     hooks = []
@@ -111,7 +112,7 @@ def _forward_with_hooks(model, ids, attn, layer_idxs):
             captured[0] = output.detach()
         hooks.append(model.model.embed_tokens.register_forward_hook(_embed_hook))
 
-    # Hooks for transformer-block outputs (index k → block k-1)
+    # Hooks for transformer block outputs (hidden_states[k] = output of block k-1)
     for lidx in layer_idxs:
         if lidx == 0:
             continue
@@ -129,60 +130,6 @@ def _forward_with_hooks(model, ids, attn, layer_idxs):
             h.remove()
 
     return captured
-
-
-def _extract_wu_and_config(model_path):
-    """Extract W_U and n_layers WITHOUT loading the full model onto a GPU."""
-    model_path = Path(model_path)
-
-    # n_layers from config.json
-    config = json.loads((model_path / "config.json").read_text())
-    n_layers = config.get("num_hidden_layers", 64)
-
-    # Try safetensors index first (loads only the one tensor we need)
-    index_path = model_path / "model.safetensors.index.json"
-    if index_path.exists():
-        from safetensors import safe_open
-        index = json.loads(index_path.read_text())
-        wmap = index.get("weight_map", {})
-        lm_key = "lm_head.weight" if "lm_head.weight" in wmap else "model.embed_tokens.weight"
-        if lm_key in wmap:
-            shard = model_path / wmap[lm_key]
-            with safe_open(str(shard), framework="pt", device="cpu") as f:
-                W_U = f.get_tensor(lm_key).float()
-            return W_U, n_layers
-
-    # Single safetensors file
-    single_st = model_path / "model.safetensors"
-    if single_st.exists():
-        from safetensors import safe_open
-        with safe_open(str(single_st), framework="pt", device="cpu") as f:
-            lm_key = "lm_head.weight" if "lm_head.weight" in f.keys() else "model.embed_tokens.weight"
-            W_U = f.get_tensor(lm_key).float()
-        return W_U, n_layers
-
-    # Try PyTorch index file
-    pt_index_path = model_path / "pytorch_model.bin.index.json"
-    if pt_index_path.exists():
-        index = json.loads(pt_index_path.read_text())
-        wmap = index.get("weight_map", {})
-        lm_key = "lm_head.weight" if "lm_head.weight" in wmap else "model.embed_tokens.weight"
-        if lm_key in wmap:
-            shard = model_path / wmap[lm_key]
-            state_dict = torch.load(str(shard), map_location="cpu", weights_only=True)
-            W_U = state_dict[lm_key].float()
-            return W_U, n_layers
-
-    # Single PyTorch bin file
-    single_pt = model_path / "pytorch_model.bin"
-    if single_pt.exists():
-        state_dict = torch.load(str(single_pt), map_location="cpu", weights_only=True)
-        lm_key = "lm_head.weight" if "lm_head.weight" in state_dict else "model.embed_tokens.weight"
-        if lm_key in state_dict:
-            W_U = state_dict[lm_key].float()
-            return W_U, n_layers
-
-    raise RuntimeError("Could not find W_U in safetensors or pytorch bin files. CPU fallback is disabled.")
 
 
 # ---------- forward pass + caching ----------
@@ -230,12 +177,12 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
 
                 # Length of each sequence ignoring right-padding
                 lengths = attn.sum(dim=1) - 1
-
+                
                 for b_idx, s in enumerate(batch_samples):
                     sid = s["sample_id"]
                     n_tok = int(lengths[b_idx].item() + 1)
                     last_idx = int(lengths[b_idx].item())
-
+                    
                     last_tok = torch.stack(
                         [captured[k][b_idx, last_idx, :] for k in layer_idxs], dim=0
                     ).cpu().float()  # (n_layers_sel, d_model)
@@ -276,7 +223,7 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                     except Exception as fallback_e:
                         print(f"  [{device}] SKIPPING {fallback_s['sample_id']} due to OOM: {fallback_e}", flush=True)
                     finally:
-                        del f_enc
+                        if 'f_enc' in locals(): del f_enc
                         torch.cuda.empty_cache()
                 # Skip the batch we just manually processed
                 i += len(batch_samples)
@@ -452,14 +399,21 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         
-    # 2. Extract W_U directly from safetensors (no GPU needed)
-    print(f"Extracting W_U from safetensors (no full model load)...", flush=True)
-    W_U, n_layers = _extract_wu_and_config(model_path)
+    # 2. Extract W_U quickly on cuda:0
+    print(f"Loading model briefly on cuda:0 to extract W_U...", flush=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=torch.bfloat16,
+        attn_implementation="sdpa",
+        device_map="cuda:0", trust_remote_code=True)
+    model.eval()
+
+    n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
     layer_idxs = parse_layers(args.layers, n_layers)
     n_layers_sel = len(layer_idxs)
 
+    W_U = model.lm_head.weight.detach().cpu().float()  # (vocab, d_model)
     torch.save(W_U, str(out_dir / "W_U.pt"))
-    print(f"Saved W_U: {W_U.shape}, n_layers={n_layers}", flush=True)
+    print(f"Saved W_U: {W_U.shape}", flush=True)
 
     def resolve_token_ids(words):
         ids = []
@@ -475,7 +429,11 @@ def main():
               open(out_dir / "refusal_token_ids.json", "w"))
     json.dump({"ids": compliance_ids, "words": COMPLIANCE_STARTERS},
               open(out_dir / "compliance_token_ids.json", "w"))
-    print("W_U extracted without GPU\n", flush=True)
+
+    # Free model VRAM
+    del model
+    torch.cuda.empty_cache()
+    print("Model freed from GPU\n", flush=True)
 
     # 3. Load datasets and prepare samples
     datasets = load_datasets(args.model_key, args.sample_limit)
