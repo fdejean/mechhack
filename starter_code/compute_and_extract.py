@@ -385,11 +385,15 @@ def main():
               flush=True)
 
         # Compute direction from train
-        direction, dir_norms = compute_direction(
-            cache, train_samples, label_fn)
-        torch.save({"direction": direction, "norms": dir_norms,
-                     "layer_idxs": layer_idxs, "task": task_name},
-                    str(out_dir / f"direction_{task_name}.pt"))
+        try:
+            direction, dir_norms = compute_direction(
+                cache, train_samples, label_fn)
+            torch.save({"direction": direction, "norms": dir_norms,
+                         "layer_idxs": layer_idxs, "task": task_name},
+                        str(out_dir / f"direction_{task_name}.pt"))
+        except ValueError as e:
+            print(f"  Skipping task {task_name}: {e}", flush=True)
+            continue
 
         # Per-layer AUC with direction only (diagnostic)
         print("  Per-layer direction AUC (train):", flush=True)
