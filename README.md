@@ -191,3 +191,91 @@ Link your code (notebook / repo / gist) on the last slide / corner of the poster
 
 **Threat-model context**
 - **Constitutional Classifiers++** — Cunningham et al., [arxiv 2601.04603](https://arxiv.org/abs/2601.04603). Anthropic's production jailbreak-defense stack, combining linear probes with external classifiers.
+
+---
+
+## Pod File Structure
+
+Everything lives in `/scratch/mechhack/` inside the pods. Both pods share the same `/scratch` PVC, so files written by one pod are visible to the other.
+
+```
+/scratch/mechhack/
+├── starter_code/                         ← hackathon-provided code
+│   ├── extract_residuals.py                 # run LLM forward, save activations
+│   ├── train_probe.py                       # train linear/MLP/attention probes
+│   ├── iterative_edit_agent.py              # Level 2 (unused)
+│   └── grad_input_baseline.py               # Level 2 (unused)
+│
+├── datasets/                             ← input prompts + labels
+│   ├── refusal_probes/gemma4_31b/attacks_full.jsonl   (876 prompts)
+│   ├── refusal_probes/qwen36/attacks_full.jsonl       (878 prompts)
+│   └── cyber_probes/
+│       ├── train.jsonl + test.jsonl         (7259 cyber prompts)
+│       ├── all.jsonl                        (concatenated)
+│       └── all_fixed.jsonl                  (added attack_prompt key)
+│
+├── extracts/                             ← saved activations (.pt files)
+│   ├── gemma4_31b/                        # 840 files — refusal-Gemma
+│   ├── qwen36/                            # 862 files — refusal-Qwen
+│   ├── cyber_gemma4_31b/gemma4_31b/       # 7114 files — cyber
+│   └── unified_manifest.json              # maps sample_id → label
+│
+├── probes/                               ← YOUR OUTPUT
+│   ├── weights/                           # saved probe .pt files
+│   └── results/
+│       ├── SUMMARY.txt                    # headline AUC numbers
+│       ├── gemma_metrics.jsonl            # raw per-seed metrics
+│       ├── qwen_metrics.jsonl
+│       └── cyber_*_metrics.jsonl          # cyber task metrics
+│
+├── tools/claude-code-aiaas/              # Claude Code routed via AIaaS
+│
+├── build_manifest.py                     ← YOUR FILE: builds unified manifest
+│
+└── docs/, rules/, scoring/               # hackathon docs
+
+/scratch/                                 ← background job logs
+├── extract_gemma.log
+├── extract_cyber_gemma.log
+└── train_both.log
+
+/data/                                    ← READ-ONLY model weights
+├── Gemma-4-31B-it/                       # 59 GB
+└── Qwen3.6-27B/                          # 52 GB
+```
+
+### runai Commands (on your Mac)
+
+```bash
+runai list jobs                     # what's alive, GPU count, node
+runai exec -it dev-pod -- bash      # get a shell inside a pod
+runai exec -it dev-pod -- CMD       # run one command without entering
+runai resume dev-pod                # wake a suspended pod (2hr idle timeout)
+runai delete job dev-pod            # kill a pod permanently
+```
+
+### Inside a Pod (Linux basics)
+
+```bash
+ps aux | grep python | grep -v grep   # what's running
+nvidia-smi                            # GPU memory usage
+tail -f /scratch/some.log             # follow a log (Ctrl-C to stop)
+nohup CMD > log 2>&1 & disown         # run in background, survives logout
+du -sh /some/dir                       # disk usage
+```
+
+### Everyday Flow
+
+```bash
+# Mac
+runai list jobs                       # what pods are alive
+runai exec -it dev-pod -- bash        # enter pod
+
+# Now inside pod
+ps aux | grep python                  # what's running
+tail /scratch/extract_cyber_gemma.log # check progress
+python starter_code/train_probe.py ... # run training
+
+# Back on Mac (if pod suspended)
+runai resume dev-pod
+```
