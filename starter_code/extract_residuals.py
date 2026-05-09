@@ -124,6 +124,9 @@ def resolve_model_path(model_key: str, model_path: str | None) -> str:
     if env := os.environ.get("HACKATHON_MODELS_DIR"):
         candidates.append(Path(env) / repo_basename)
     candidates.append(Path("/data") / repo_basename)
+    # The pre-staged models on the cluster use a specific casing:
+    if model_key == "gemma4_31b":
+        candidates.append(Path("/data") / "Gemma-4-31B-it")
     candidates.append(Path(__file__).resolve().parent.parent / "models" / repo_basename)
     for c in candidates:
         if c.exists():
