@@ -218,8 +218,11 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                 if 'captured' in locals(): del captured
                 torch.cuda.empty_cache()
                 
-                if "out of memory" not in str(e).lower() or batch_size == 1:
+                if "out of memory" not in str(e).lower():
                     raise
+                if batch_size == 1:
+                    print(f"  [{device}] SKIPPING {batch_samples[0]['sample_id']} due to OOM: {e}", flush=True)
+                    continue
                 print(f"  [{device}] OOM with batch_size={batch_size}, retrying sequentially...", flush=True)
                 # Rewind and retry with batch size 1
                 i -= len(batch_samples)
