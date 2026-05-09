@@ -134,6 +134,7 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
             )
             enc = tokenizer(txt, return_tensors="pt").to(DEVICE)
             ids, attn = enc.input_ids, enc.attention_mask
+            n_tok = int(ids.shape[1])
             torch.cuda.empty_cache()
             try:
                 with torch.inference_mode(): # Use inference_mode instead of no_grad for max memory savings
@@ -146,12 +147,13 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                     [hs[k][0, last_idx, :] for k in layer_idxs], dim=0
                 ).cpu().float()  # (n_layers_sel, d_model)
 
-                cache[sid] = {"last_tok": last_tok, "n_tokens": int(ids.shape[1])}
+                cache[sid] = {"last_tok": last_tok, "n_tokens": n_tok}
                 del out, hs
             except (torch.OutOfMemoryError, RuntimeError) as e:
                 if "out of memory" not in str(e).lower():
                     raise
-                print(f"  [{i+1}/{len(all_samples)}] {sid}: SKIPPING DUE TO OOM (n_tok={int(ids.shape[1])})", flush=True)
+                print(f"  [{i+1}/{len(all_samples)}] {sid}: SKIPPING DUE TO OOM (n_tok={n_tok})", flush=True)
+                continue # Skip the progress print since we already printed the OOM message
             finally:
                 del enc, ids, attn
                 torch.cuda.empty_cache()
@@ -161,7 +163,7 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                 rate = (i + 1) / elapsed
                 eta = (len(all_samples) - (i + 1)) / max(rate, 1e-3) / 60
                 print(f"  [{i+1}/{len(all_samples)}] {sid}: "
-                      f"n_tok={ids.shape[1]} | {rate:.2f}/s eta={eta:.1f}min",
+                      f"n_tok={n_tok} | {rate:.2f}/s eta={eta:.1f}min",
                       flush=True)
     finally:
         if cm is not None:
