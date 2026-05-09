@@ -9,7 +9,7 @@ Headline numbers:
 - **Level 2 across three intervention surfaces:**
   - Token-level edits (input space, minimal): **0/20** behavior flips
   - Free-form rewriting (input space, intent-preserved): **___ /20** [PENDING]
-  - Activation ablation (residual stream, Arditi-style): **___ /20** [PENDING]
+  - Activation ablation (residual stream, Arditi-style): **2/20** flips (random ctrl: 3/20)
 
 The shape of these three flip rates — not any one of them in isolation — is the finding.
 
@@ -241,17 +241,17 @@ The ablation only worked after fixing two real bugs in the loader:
 
 Both bugs were caught by the **activation-level diagnostic** (the projection check above) rather than by the behavior outcome alone. The lesson: high-AUC probe ≠ working intervention. Verify the intervention separately from its result.
 
-#### Results — n=20 [PENDING — fill from `edit_eval/patch_full.json`]
+#### Results — n=20
 
 | Condition | Compliance count | Rate | Wilson 95% CI |
 |---|---|---|---|
-| baseline | __/20 | __ | [__, __] |
-| ablated | __/20 | __ | [__, __] |
-| random_ctrl | __/20 | __ | [__, __] |
-| ablation − baseline | | __ | |
-| ablation − random | | __ | |
+| baseline | 1/20 | 0.05 | [0.009, 0.236] |
+| ablated | 2/20 | 0.10 | [0.028, 0.301] |
+| random_ctrl | 3/20 | 0.15 | [0.052, 0.360] |
+| ablation − baseline |  | +0.05 |  |
+| ablation − random |  | −0.05 |  |
 
-Through 16/20 the run shows: ablated 1/16, random 2/16, baseline 1/16 (one judge mislabel). The probe direction does not strongly control behavior under all-position ablation.
+The intervention adds one compliance flip relative to baseline, and the random-direction control adds *two*. With n=20 the three CIs overlap completely (the baseline CI alone runs to 23.6%), so neither delta is statistically distinguishable from zero. What we can say without overclaiming: across this eval slice, projecting the saved refusal direction out of the residual stream at every direction-extraction layer (4, 8, …, 60) does not produce a behaviorally distinguishable shift relative to projecting out an arbitrary unit vector.
 
 #### Direction-pooling sensitivity (`build_dirs.py`)
 
@@ -277,7 +277,7 @@ If the mean-pool direction shows substantially higher flip rate, the last-token 
 |---|---|---|---|
 | Token edits | input string | minimal | **0/20** |
 | Free-form rewrite | input string | intent preserved | **__/20** [PENDING] |
-| Activation ablation v1 (last-tok) | residual stream | none | **__/20** [PENDING] |
+| Activation ablation v1 (last-tok) | residual stream | none | **2/20** (random ctrl: **3/20**) |
 | Activation ablation v2 (mean-pool) | residual stream | none | **__/20** [PENDING] |
 
 Two complementary readings of this pattern, both supported by the data:
