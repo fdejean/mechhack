@@ -1,0 +1,7 @@
+{
+  "refusal_gemma4_31b": 0.9203336809176225,
+  "refusal_qwen36": 0.8688928731510533,
+  "cyber_dual_use": 0.8654558183996877,
+  "cyber_high_risk_dual_use": 0.8394356536975613,
+  "cyber_prohibited": 0.8955865447093518
+}
