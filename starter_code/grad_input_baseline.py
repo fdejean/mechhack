@@ -191,7 +191,10 @@ def main():
     model.gradient_checkpointing_enable()
     if hasattr(model, "enable_input_require_grads"):
         model.enable_input_require_grads()  # ensures grads flow to inputs even with frozen params
-    n_layers = len(model.model.layers) if hasattr(model.model, "layers") else None
+    if hasattr(model.model, "language_model") and hasattr(model.model.language_model, "layers"):
+        n_layers = len(model.model.language_model.layers)
+    else:
+        n_layers = len(model.model.layers) if hasattr(model.model, "layers") else None
     print(f"model loaded | layers={n_layers}", flush=True)
 
     functional_ids = get_functional_ids(tok)
