@@ -1,15 +1,15 @@
-# Big activation files
-extracts/
-*.pt
+# Large model/probe artifacts (regenerable)
+hybrid_artifacts/
+hybrid_features/
+hybrid_models/
+starter_code/features_*.npz
+starter_code/*.npz
 
-# Claude Code vendor dir
-tools/claude-code-aiaas/vendor/
-
-# Python cache
+# Logs and Python junk
+*.log
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
 
-# Logs
-*.log
-datasets/cyber_probes/all_fixed.jsonl
-datasets/cyber_probes/all.jsonl
+# Old experiments
+edit_eval_gradinput/
