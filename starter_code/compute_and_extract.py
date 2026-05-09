@@ -161,7 +161,28 @@ def _extract_wu_and_config(model_path):
             W_U = f.get_tensor(lm_key).float()
         return W_U, n_layers
 
-    raise RuntimeError("Could not find W_U in safetensors. CPU fallback is disabled.")
+    # Try PyTorch index file
+    pt_index_path = model_path / "pytorch_model.bin.index.json"
+    if pt_index_path.exists():
+        index = json.loads(pt_index_path.read_text())
+        wmap = index.get("weight_map", {})
+        lm_key = "lm_head.weight" if "lm_head.weight" in wmap else "model.embed_tokens.weight"
+        if lm_key in wmap:
+            shard = model_path / wmap[lm_key]
+            state_dict = torch.load(str(shard), map_location="cpu", weights_only=True)
+            W_U = state_dict[lm_key].float()
+            return W_U, n_layers
+
+    # Single PyTorch bin file
+    single_pt = model_path / "pytorch_model.bin"
+    if single_pt.exists():
+        state_dict = torch.load(str(single_pt), map_location="cpu", weights_only=True)
+        lm_key = "lm_head.weight" if "lm_head.weight" in state_dict else "model.embed_tokens.weight"
+        if lm_key in state_dict:
+            W_U = state_dict[lm_key].float()
+            return W_U, n_layers
+
+    raise RuntimeError("Could not find W_U in safetensors or pytorch bin files. CPU fallback is disabled.")
 
 
 # ---------- forward pass + caching ----------
