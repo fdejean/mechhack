@@ -342,9 +342,16 @@ def attack_sample(
     word_scores = token_attrib_to_word_scores(
         tokens_clean, targeted_scores.tolist(), original_prompt)
 
-    print(f"  {sid}: orig_prob={prob_orig:.4f}, "
-          f"critical_layers={classifier_info['critical_layers']}, "
-          f"top3_words={[w for w,_,_ in word_scores[:3]]}", flush=True)
+    # Pretty print sample header
+    prob_bar = "█" * int(prob_orig * 30) + "░" * (30 - int(prob_orig * 30))
+    crit_layers = classifier_info['critical_layers']
+    top_contribs = classifier_info.get('layer_contribs', {})
+    top3_contribs = sorted(top_contribs.items(), key=lambda x: -x[1])[:3]
+    contribs_str = ", ".join(f"{k}={v:+.2f}" for k, v in top3_contribs)
+    print(f"  {sid}:", flush=True)
+    print(f"    Refusal prob: [{prob_bar}] {prob_orig:.4f}", flush=True)
+    print(f"    Key drivers:  {contribs_str}", flush=True)
+    print(f"    Top targets:  {', '.join(w[:30] for w,_,_ in word_scores[:3])}", flush=True)
 
     result = {
         "sample_id": sid,
@@ -439,14 +446,19 @@ def attack_sample(
             if prob_edit < 0.5:
                 # Judge intent preservation
                 judge_res = judge_intent(judge_client, original_prompt, edited)
+                judge_score = judge_res.get('score', -1)
+                judge_preserved = judge_res.get('intent_preserved', False)
+                judge_reason = judge_res.get('reason', 'N/A')
 
-                print(f"    iter {iter_num+1} [{strat}] cand {ci+1}/{len(candidates)}: "
-                      f"FLIPPED prob={prob_edit:.4f} "
-                      f"judge_score={judge_res.get('score')} "
-                      f"preserved={judge_res.get('intent_preserved')}",
-                      flush=True)
+                # Show detailed flip result
+                flip_icon = "✅" if judge_preserved else "⚠️"
+                print(f"    {flip_icon} FLIPPED at iter {iter_num+1}, cand {ci+1}/{len(candidates)}", flush=True)
+                print(f"      Strategy:  {strat}", flush=True)
+                print(f"      Prob:      {prob_orig:.4f} → {prob_edit:.4f} (Δ={prob_edit-prob_orig:+.4f})", flush=True)
+                print(f"      Judge:     score={judge_score}/10, preserved={judge_preserved}", flush=True)
+                print(f"      Reason:    {judge_reason[:120]}", flush=True)
 
-                # Record flip regardless of judge — log judge for analysis
+                # Record flip
                 found_flip = True
                 result["flipped_classifier"] = True
                 result["flipped_at_iter"] = iter_num + 1
@@ -480,10 +492,12 @@ def attack_sample(
             iter_log["best_strategy"] = best_candidate[4]
         result["iterations"].append(iter_log)
 
-        print(f"    iter {iter_num+1}: best_of_{len(candidates)}="
-              f"{best_cand_prob:.4f} (Δ={best_cand_prob-prob_orig:+.4f})"
-              f" [{best_candidate[4] if best_candidate else 'none'}]",
-              flush=True)
+        delta = best_cand_prob - prob_orig
+        best_strat_name = best_candidate[4] if best_candidate else 'none'
+        prob_bar = "█" * int(best_cand_prob * 20) + "░" * (20 - int(best_cand_prob * 20))
+        print(f"    iter {iter_num+1}: [{prob_bar}] {best_cand_prob:.4f} "
+              f"(Δ={delta:+.4f}) via {best_strat_name} "
+              f"(tested {len(candidates)} candidates)", flush=True)
 
     # If we didn't flip but found a lower prob, still record
     if not result["flipped_classifier"]:
@@ -641,9 +655,11 @@ def main():
             # Progress
             elapsed = time.time() - t_start
             rate = (i + 1) / elapsed * 60
-            print(f"  Progress: {n_flipped}/{i+1} flipped "
-                  f"({n_flipped/(i+1)*100:.0f}%) | "
-                  f"{rate:.1f} samples/min", flush=True)
+            remaining = (len(samples) - i - 1) / max(rate / 60, 0.001)
+            pct = n_flipped / (i + 1) * 100
+            print(f"  ── Progress: {n_flipped}/{i+1} flipped ({pct:.0f}%) "
+                  f"│ {elapsed/60:.1f}min elapsed "
+                  f"│ ~{remaining/60:.0f}min remaining ──", flush=True)
 
     finally:
         if cm is not None:
@@ -653,47 +669,59 @@ def main():
     total = len([r for r in results if "error" not in r])
     probe_flip_rate = n_flipped / total if total > 0 else 0
 
+    # Collect per-strategy stats
+    strategy_flips = {}
+    strategy_attempts = {}
+    for r in results:
+        if r.get("flipped_classifier"):
+            s = r.get("flipped_strategy", "unknown")
+            strategy_flips[s] = strategy_flips.get(s, 0) + 1
+
     summary = {
         "task": task_name,
         "model_key": args.model_key,
-        "strategies": strategies,
-        "max_iters": args.max_iters,
         "n_samples": total,
         "n_flipped_classifier": n_flipped,
         "probe_flip_rate": round(probe_flip_rate, 4),
         "elapsed_minutes": round((time.time() - t_start) / 60, 1),
+        "strategy_breakdown": strategy_flips,
     }
 
-    # Per-strategy breakdown
-    strategy_flips = {}
-    for r in results:
-        if r.get("flipped_classifier"):
-            for it in r.get("iterations", []):
-                if it.get("classifier_flipped"):
-                    s = it.get("strategy", "unknown")
-                    strategy_flips[s] = strategy_flips.get(s, 0) + 1
-    summary["strategy_breakdown"] = strategy_flips
+    # Print detailed summary
+    print(f"\n{'='*70}")
+    print(f"  ATTACK SUMMARY — {task_name}")
+    print(f"{'='*70}")
+    print(f"  Samples tested:     {total}")
+    print(f"  Classifier flips:   {n_flipped}/{total} ({probe_flip_rate*100:.1f}%)")
+    print(f"  Time:               {summary['elapsed_minutes']:.1f} min")
+    print()
 
-    # Embedding distance stats for flipped samples
-    cos_sims = []
-    for r in results:
-        if r.get("flipped_classifier") and r.get("final_embedding_distance"):
-            ie = r["final_embedding_distance"].get("input_embedding", {})
-            if "cosine_similarity" in ie:
-                cos_sims.append(ie["cosine_similarity"])
-    if cos_sims:
-        summary["mean_cosine_similarity_flipped"] = round(np.mean(cos_sims), 4)
-        summary["std_cosine_similarity_flipped"] = round(np.std(cos_sims), 4)
+    # Strategy effectiveness
+    if strategy_flips:
+        print(f"  Strategy effectiveness:")
+        for s, count in sorted(strategy_flips.items(), key=lambda x: -x[1]):
+            print(f"    {s:25s} {count} flips")
+        print()
 
-    print(f"\n{'='*60}")
-    print(f"SUMMARY")
-    print(f"  Samples: {total}")
-    print(f"  Classifier flips: {n_flipped} ({probe_flip_rate*100:.1f}%)")
-    print(f"  Strategy breakdown: {strategy_flips}")
-    if cos_sims:
-        print(f"  Mean cosine similarity (flipped): {np.mean(cos_sims):.4f}")
-    print(f"  Time: {summary['elapsed_minutes']:.1f} min")
-    print(f"{'='*60}")
+    # Per-sample detail table
+    print(f"  {'Sample':<15} {'Orig':>6} {'Final':>6} {'Δ':>7} {'Flip':>5} {'Strategy':<20} {'Judge':>5} {'Reason'}")
+    print(f"  {'─'*14} {'─'*6} {'─'*6} {'─'*7} {'─'*5} {'─'*20} {'─'*5} {'─'*30}")
+    for r in results:
+        if "error" in r:
+            print(f"  {r['sample_id']:<15} {'ERROR':>6}")
+            continue
+        sid = r['sample_id']
+        orig_p = r['original_classifier_prob']
+        final_p = r['final_classifier_prob']
+        delta = final_p - orig_p
+        flipped = '✅' if r.get('flipped_classifier') else '❌'
+        strat = r.get('flipped_strategy', '-')
+        judge = r.get('intent_judge', {})
+        judge_score = judge.get('score', '-')
+        judge_reason = judge.get('reason', '-')[:40]
+        print(f"  {sid:<15} {orig_p:>6.3f} {final_p:>6.3f} {delta:>+7.3f} {flipped:>5} {strat:<20} {str(judge_score):>5} {judge_reason}")
+
+    print(f"{'='*70}")
 
     # ── Save ──
     out_path = out_dir / f"attack_results_{task_name}.json"
