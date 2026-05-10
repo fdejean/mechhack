@@ -716,7 +716,7 @@ def main():
         delta = final_p - orig_p
         flipped = '✅' if r.get('flipped_classifier') else '❌'
         strat = r.get('flipped_strategy', '-')
-        judge = r.get('intent_judge', {})
+        judge = r.get('intent_judge') or {}
         judge_score = judge.get('score', '-')
         judge_reason = judge.get('reason', '-')[:40]
         print(f"  {sid:<15} {orig_p:>6.3f} {final_p:>6.3f} {delta:>+7.3f} {flipped:>5} {strat:<20} {str(judge_score):>5} {judge_reason}")
