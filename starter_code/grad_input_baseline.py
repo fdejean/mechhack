@@ -122,7 +122,7 @@ def get_functional_ids(tok):
     return ids
 
 
-def topk_editable(scores, n_tokens, ids, functional_ids, k=TOPK):
+def topk_editable(scores, n_tokens, ids, functional_ids, k=10):
     s = np.asarray(scores)[:n_tokens]
     editable_mask = np.array([int(ids[i]) not in functional_ids for i in range(n_tokens)])
     s_masked = np.where(editable_mask, s, -np.inf)
@@ -241,12 +241,13 @@ def main():
                     attention_mask=attn,
                     output_hidden_states=True,
                     return_dict=True,
+                    num_logits_to_keep=1,
                 )
                 # residual at chosen layer (layer_idx is for hidden_states tuple — index of post-layer i)
                 # hidden_states[L+1] = output of transformer block L
                 # Match Phase 4 indexing: phase4 used hidden_states[layer_idx_map[VARIANT]] from (n_layers+1) tuple
                 residual = out.hidden_states[layer_idx][0].to(torch.float32)  # (N, d) cast to fp32 for probe
-                mask = torch.ones(n, dtype=torch.bool, device=DEVICE)
+                mask = torch.ones(residual.shape[0], dtype=torch.bool, device=DEVICE)
                 probe_logit, alpha = probe(residual.unsqueeze(0), mask.unsqueeze(0))
                 probe_logit_scalar = probe_logit.squeeze()  # scalar
 
@@ -262,13 +263,17 @@ def main():
 
             # Free graph
             del out, inputs_embeds, residual, alpha, probe_logit, probe_logit_scalar, g, e
+            import gc; gc.collect()
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
 
             ids_list = ex["input_ids"][:n].tolist()
             pieces = tok.convert_ids_to_tokens(ids_list)
             pieces = [p.replace("Ġ", " ").replace("▁", " ").replace("Ċ", "\n") for p in pieces]
             text_full = tok.decode(ids_list, skip_special_tokens=False)
 
+            n = min(len(attrib), len(ids_list))
+            n = min(len(attrib), len(ids_list))
             top = topk_editable(attrib, n, ids_list, functional_ids, k=args.topk)
             if not top:
                 print(f"  [{i+1}/{len(refs)}] {sid}: no editable tokens after mask", flush=True); continue
