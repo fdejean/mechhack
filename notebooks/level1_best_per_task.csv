@@ -1,0 +1,6 @@
+task,classifier,model_source,auc
+Cyber-1 (dual_use vs benign),XGBoost,gemma4_31b,0.9674458307510612
+Cyber-2 (high_risk vs rest),Logistic Regression,qwen36,0.9428011024997003
+Cyber-3 (prohibited vs rest),SVM,qwen36,0.8529661199866179
+Refusal-Gemma,XGBoost,gemma4_31b,0.9296453546453547
+Refusal-Qwen,XGBoost,qwen36,0.8708655498281787
