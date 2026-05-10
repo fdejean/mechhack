@@ -28,7 +28,7 @@ chmod +x /scratch/mechhack/scripts/launch_layer_sweep.sh
 
 ```bash
 cd /scratch/mechhack
-export AIAAS_KEY=***REDACTED-AIAAS-KEY***
+export AIAAS_KEY="<your-aiaas-key>"
 
 # Smoke test on 3 (will resume what's already in the file)
 python -u scripts/run_pre_resumable.py \
@@ -52,7 +52,7 @@ date
 
 ```bash
 cd /scratch/mechhack
-export AIAAS_KEY=***REDACTED-AIAAS-KEY***
+export AIAAS_KEY="<your-aiaas-key>"
 
 # Build single-layer direction files (~5 sec)
 python scripts/build_single_layer_directions.py
@@ -75,7 +75,7 @@ date
 
 ```bash
 cd /scratch/mechhack
-export AIAAS_KEY=***REDACTED-AIAAS-KEY***
+export AIAAS_KEY="<your-aiaas-key>"
 
 # Step 1: build the whitened direction (CPU, ~5 min)
 python scripts/build_whitened_direction.py 2>&1 | tee logs/whitened_build.log

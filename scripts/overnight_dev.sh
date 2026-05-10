@@ -12,7 +12,7 @@
 #   nohup bash scripts/overnight_dev.sh > logs/overnight_dev.log 2>&1 &
 
 cd /scratch/mechhack
-export AIAAS_KEY=${AIAAS_KEY:-***REDACTED-AIAAS-KEY***}
+export AIAAS_KEY=${AIAAS_KEY:?AIAAS_KEY must be set}
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 mkdir -p logs edit_eval
