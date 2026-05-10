@@ -13,6 +13,8 @@ Headline numbers:
 
 The shape of these three flip rates — not any one of them in isolation — is the finding.
 
+Additional overnight diagnostics — K-sweep, layer-sweep, whitened-SVD ablation, cyber-cascade stretch — are reported in 'Level 2 extended diagnostics' below; numbers integrated morning of submission.
+
 ---
 
 ## Setup
@@ -336,6 +338,91 @@ Artifacts saved to `/scratch/hybrid_v2/gemma4_31b/`. Patch_agent run with the me
 
 ---
 
+## Level 2 — extended diagnostics (overnight runs)
+
+[PENDING — overnight runs in progress; results integrated morning of submission.]
+
+Four follow-up diagnostics were launched overnight to test specific weaknesses in the three core experiments above. Each subsection below describes the question, the input set, and a TODO block where the resulting numbers will be filled in.
+
+### PRE diminishing returns curve
+
+K-sweep on `pre_agent.py`: PRE flip rate as a function of paraphrase budget K, on the full n=81 attribution-eval set, at K ∈ {3, 7, 10}.
+
+Tests whether PRE's input-side handle on the probe is accessible with K=3 paraphrases or whether higher K reveals additional flippable prompts.
+
+Output files:
+- `edit_eval/pre_n81.json` (K=3)
+- `edit_eval/pre_k7_n81.json` (K=7)
+- `edit_eval/pre_k10_n81.json` (K=10)
+
+#### Results — [PENDING]
+
+[TODO: insert from `edit_eval/pre_n81.json`, `edit_eval/pre_k7_n81.json`, `edit_eval/pre_k10_n81.json` after overnight run completes.]
+
+| Quantity | Value | Wilson 95% CI |
+|---|---|---|
+| Pr(f \| edit) or condition counts | TBD | TBD |
+| Pr(model \| edit) or rate | TBD | TBD |
+| Manual-reviewed flip rate (after audit) | TBD | TBD |
+
+### Layer-sweep ablation diagnostic
+
+Single-layer ablation flip rate on `patch_agent.py`, sweeping 14 single layers at every-4-layer granularity (L4, L8, L12, L16, L20, L24, L28, L32, L36, L40, L44, L48, L52, L56), n=20 prompts per layer.
+
+Tests whether the all-15-layer ablation in 2C was over-specifying. The smoke at L48 alone showed 1/2 ablation flips, suggesting concentrated layer effect.
+
+Output files: `edit_eval/patch_layer_L{4,8,12,16,20,24,28,32,36,40,44,48,52,56}.json`
+
+#### Results — [PENDING]
+
+[TODO: insert from `edit_eval/patch_layer_L*.json` after overnight run completes.]
+
+| Quantity | Value | Wilson 95% CI |
+|---|---|---|
+| Pr(f \| edit) or condition counts | TBD | TBD |
+| Pr(model \| edit) or rate | TBD | TBD |
+| Manual-reviewed flip rate (after audit) | TBD | TBD |
+
+### Whitened-SVD direction (alternative extraction)
+
+OBLITERATUS-borrowed technique: extract the refusal direction by whitening the residual covariance and taking the top SVD component of the whitened mean-difference, instead of the raw last-token mean-difference.
+
+Already-known finding from the build log: **cos(whitened, meandiff) = 0.0155**. The whitened direction is essentially orthogonal to the canonical mean-diff direction (cos=0.016 < 0.234 for pooling variants). The "one direction" framing is clearly underspecified at multiple levels — pooling AND covariance normalization both produce essentially-orthogonal axes that all achieve similar discriminative AUC. This suggests refusal is even less single-direction than the pooling diagnostic suggested.
+
+Two experiments pending on this direction:
+- Ablation n=20 → `edit_eval/patch_whitened_n20.json`
+- PRE-whitened n=81 → `edit_eval/pre_whitened_n81.json`
+
+#### Results — [PENDING]
+
+[TODO: insert from `edit_eval/patch_whitened_n20.json` and `edit_eval/pre_whitened_n81.json` after overnight run completes.]
+
+| Quantity | Value | Wilson 95% CI |
+|---|---|---|
+| Pr(f \| edit) or condition counts | TBD | TBD |
+| Pr(model \| edit) or rate | TBD | TBD |
+| Manual-reviewed flip rate (after audit) | TBD | TBD |
+
+### Cyber-cascade flip (stretch goal)
+
+`pre_agent.py` rewriting guided by the cyber-probe-3 direction, on n=30 cyber-3 (prohibited) prompts.
+
+Honest framing required: pre_agent's behavior judge classifies refusal/compliance, not "reclassified as benign by cyber probe stack". So this measures: did Gemma comply with a prompt originally classified as cyber-prohibited, after probe-3-direction-guided rewriting? It is *not* the strict cascade-flip definition (which would require all three cyber probes to drop below threshold simultaneously).
+
+Output file: `edit_eval/pre_cyber3_cascade.json`
+
+#### Results — [PENDING]
+
+[TODO: insert from `edit_eval/pre_cyber3_cascade.json` after overnight run completes.]
+
+| Quantity | Value | Wilson 95% CI |
+|---|---|---|
+| Pr(f \| edit) or condition counts | TBD | TBD |
+| Pr(model \| edit) or rate | TBD | TBD |
+| Manual-reviewed flip rate (after audit) | TBD | TBD |
+
+---
+
 ## What this contributes — the three flip rates together
 
 | Intervention                         | Where it acts    | Constraint        | True flip rate (manual review) |
@@ -343,6 +430,7 @@ Artifacts saved to `/scratch/hybrid_v2/gemma4_31b/`. Patch_agent run with the me
 | Token edits                          | input string     | minimal           | 0/20 (0%)                      |
 | Free-form rewrite (PRE)              | input string     | intent preserved  | 5/20 (25%) [11%, 47%]          |
 | Activation ablation (last-tok dir)   | residual stream  | none              | 0/20 (0%)                      |
+| TBD overnight diagnostics            | various          | various           | filled morning of submission   |
 
 This is the headline. Free-form rewriting is the only intervention that actually flips behavior at a meaningful rate. Token-level edits don't access the right features. Single-direction ablation either doesn't change behavior or produces content-empty filler.
 
@@ -360,9 +448,9 @@ Both readings matter for **Constitutional Classifiers**-style production deploym
 
 ## What we'd do with more time
 
-- **Run patch_agent with the recomputed mean-pool direction.** The cos=0.234 between pooling variants is non-trivial; the alternative direction may give a different ablation flip rate. Artifacts ready in `/scratch/hybrid_v2/gemma4_31b/`.
-- **Multi-direction ablation** (Wollschläger 2025, Pan 2025). If refusal lives in a 2-D or 3-D subspace, single-direction ablation won't suffice. SVD the per-class activation difference and ablate the top-K directions.
-- **Cyber-cascade flip.** Use the same machinery to target individual cyber-harm probes. Does ablation that flips refusal also bypass `prohibited` detection?
+- **Run patch_agent with the recomputed mean-pool direction.** Ran overnight as a multi-layer mean-pool ablation; results in `edit_eval/patch_multilayer_meanpool_n20.json` — see "Level 2 — extended diagnostics" above.
+- **Multi-direction ablation** (Wollschläger 2025, Pan 2025). If refusal lives in a 2-D or 3-D subspace, single-direction ablation won't suffice. SVD the per-class activation difference and ablate the top-K directions. (We ran a whitened single-direction variant overnight, not Wollschläger's multi-cone.)
+- **Cyber-cascade flip.** Ran overnight on n=30 cyber-3 prompts via probe-3-guided PRE; results in `edit_eval/pre_cyber3_cascade.json` — see "Level 2 — extended diagnostics" above. Note the caveat there: this measures Gemma compliance after probe-3-guided rewriting, not the strict all-three-probes-below-threshold cascade-flip definition.
 - **PRE × ablation hybrid.** Compose input-side rewriting with activation ablation. Tests whether the two interventions are independent or redundant.
 
 ---
@@ -498,7 +586,30 @@ python patch_agent.py
 │   ├── pre_full.json                                20-sample pre_agent full run
 │   ├── patch_smoke.json                             2-sample patch_agent smoketest
 │   ├── patch_full.json                              20-sample patch_agent full run
-│   └── patch_full_meanpool.json                     20-sample patch_agent w/ recomputed direction (NOT RUN)
+│   ├── patch_full_meanpool.json                     20-sample patch_agent w/ recomputed direction (NOT RUN)
+│   │
+│   │   --- overnight diagnostic outputs (numbers TBD morning of submission) ---
+│   ├── pre_n81.json                                 PRE n=81, K=3 (full eval set)
+│   ├── pre_k7_n81.json                              PRE n=81, K=7
+│   ├── pre_k10_n81.json                             PRE n=81, K=10
+│   ├── patch_layer_L4.json                          single-layer ablation, L=4, n=20
+│   ├── patch_layer_L8.json                          single-layer ablation, L=8, n=20
+│   ├── patch_layer_L12.json                         single-layer ablation, L=12, n=20
+│   ├── patch_layer_L16.json                         single-layer ablation, L=16, n=20
+│   ├── patch_layer_L20.json                         single-layer ablation, L=20, n=20
+│   ├── patch_layer_L24.json                         single-layer ablation, L=24, n=20
+│   ├── patch_layer_L28.json                         single-layer ablation, L=28, n=20
+│   ├── patch_layer_L32.json                         single-layer ablation, L=32, n=20
+│   ├── patch_layer_L36.json                         single-layer ablation, L=36, n=20
+│   ├── patch_layer_L40.json                         single-layer ablation, L=40, n=20
+│   ├── patch_layer_L44.json                         single-layer ablation, L=44, n=20
+│   ├── patch_layer_L48.json                         single-layer ablation, L=48, n=20
+│   ├── patch_layer_L52.json                         single-layer ablation, L=52, n=20
+│   ├── patch_layer_L56.json                         single-layer ablation, L=56, n=20
+│   ├── patch_whitened_n20.json                      ablation w/ whitened-SVD direction, n=20
+│   ├── pre_whitened_n81.json                        PRE w/ whitened-SVD direction, n=81
+│   ├── pre_cyber3_cascade.json                      PRE guided by cyber-probe-3 direction, n=30 cyber-3 prompts
+│   └── patch_multilayer_meanpool_n20.json           ablation w/ multi-layer mean-pool direction, n=20
 │
 ├── build_manifest.py
 ├── xgboost_probes.py

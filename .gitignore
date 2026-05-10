@@ -18,3 +18,7 @@ probes/weights/
 tools/claude-code-aiaas/vendor/
 *.pt
 datasets/cyber_probes/all_fixed.jsonl
+
+# NFS lock leftovers (cluster filesystems)
+.nfs*
+**/.nfs*
