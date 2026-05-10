@@ -1,0 +1,15 @@
+# Big activation files
+extracts/
+*.pt
+
+# Claude Code vendor dir
+tools/claude-code-aiaas/vendor/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+datasets/cyber_probes/all_fixed.jsonl
+datasets/cyber_probes/all.jsonl

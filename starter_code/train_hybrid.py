@@ -10,7 +10,7 @@ Usage:
 
 Requires: xgboost, scikit-learn, matplotlib (all in pod image).
 """
-import json, argparse
+import json, argparse, pickle
 from pathlib import Path
 import numpy as np
 
@@ -41,40 +41,49 @@ def load_task(features_dir, task_name):
 
 
 def train_xgboost(X_train, y_train, X_test, y_test):
-    """Train XGBoost with early stopping, return model + metrics."""
-    import xgboost as xgb
+    """Train XGBoost with RandomizedSearchCV, return best model + metrics."""
+    from xgboost import XGBClassifier
+    from sklearn.model_selection import RandomizedSearchCV
     from sklearn.metrics import roc_auc_score
 
-    dtrain = xgb.DMatrix(X_train, label=y_train)
-    dtest = xgb.DMatrix(X_test, label=y_test)
-
-    params = {
-        "objective": "binary:logistic",
-        "eval_metric": "auc",
-        "max_depth": 4,
-        "learning_rate": 0.1,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
-        "min_child_weight": 5,
-        "seed": 42,
-        "verbosity": 0,
-    }
-    model = xgb.train(
-        params, dtrain,
-        num_boost_round=300,
-        evals=[(dtest, "test")],
+    base_model = XGBClassifier(
+        objective="binary:logistic",
+        eval_metric="auc",
+        random_state=42,
+        n_estimators=300,
         early_stopping_rounds=20,
-        verbose_eval=False,
     )
 
-    preds = model.predict(dtest)
+    param_distributions = {
+        "max_depth": [3, 4, 5, 6],
+        "learning_rate": [0.01, 0.05, 0.1, 0.2],
+        "subsample": [0.6, 0.8, 1.0],
+        "colsample_bytree": [0.6, 0.8, 1.0],
+    }
+
+    rs = RandomizedSearchCV(
+        base_model, param_distributions, n_iter=10,
+        scoring="roc_auc", cv=5, random_state=42, n_jobs=-1
+    )
+    
+    # Use test set for early stopping.
+    rs.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
+
+    best_model = rs.best_estimator_
+    preds = best_model.predict_proba(X_test)[:, 1]
     auc = roc_auc_score(y_test, preds)
-    return model, auc, preds
+
+    best_idx = rs.best_index_
+    cv_mean = rs.cv_results_["mean_test_score"][best_idx]
+    cv_std = rs.cv_results_["std_test_score"][best_idx]
+
+    return best_model, auc, preds, cv_mean, cv_std, rs.best_params_
 
 
 def train_logistic(X_train, y_train, X_test, y_test):
-    """Logistic regression baseline."""
+    """Logistic regression baseline with GridSearchCV."""
     from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import GridSearchCV
     from sklearn.metrics import roc_auc_score
     from sklearn.preprocessing import StandardScaler
 
@@ -82,11 +91,62 @@ def train_logistic(X_train, y_train, X_test, y_test):
     X_tr = scaler.fit_transform(X_train)
     X_te = scaler.transform(X_test)
 
-    lr = LogisticRegression(max_iter=1000, C=1.0, random_state=42)
-    lr.fit(X_tr, y_train)
-    preds = lr.predict_proba(X_te)[:, 1]
+    param_grid = {'C': [0.01, 0.1, 1.0, 10.0, 100.0]}
+    lr = LogisticRegression(max_iter=1000, random_state=42)
+
+    gs = GridSearchCV(lr, param_grid, cv=5, scoring="roc_auc", n_jobs=-1)
+    gs.fit(X_tr, y_train)
+
+    best_model = gs.best_estimator_
+    preds = best_model.predict_proba(X_te)[:, 1]
     auc = roc_auc_score(y_test, preds)
-    return lr, auc, preds, scaler
+    return best_model, auc, preds, scaler, gs.best_params_
+def train_svm(X_train, y_train, X_test, y_test):
+    """SVM baseline with GridSearchCV."""
+    from sklearn.svm import SVC
+    from sklearn.model_selection import GridSearchCV
+    from sklearn.metrics import roc_auc_score
+    from sklearn.preprocessing import StandardScaler
+
+    scaler = StandardScaler()
+    X_tr = scaler.fit_transform(X_train)
+    X_te = scaler.transform(X_test)
+
+    param_grid = {
+        'C': [0.1, 1.0, 10.0],
+        'kernel': ['linear', 'rbf']
+    }
+    svm = SVC(probability=True, random_state=42)
+
+    gs = GridSearchCV(svm, param_grid, cv=5, scoring="roc_auc", n_jobs=-1)
+    gs.fit(X_tr, y_train)
+
+    best_model = gs.best_estimator_
+    preds = best_model.predict_proba(X_te)[:, 1]
+    auc = roc_auc_score(y_test, preds)
+    return best_model, auc, preds, scaler, gs.best_params_
+
+
+def train_tree(X_train, y_train, X_test, y_test):
+    """Decision Tree baseline with GridSearchCV."""
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.model_selection import GridSearchCV
+    from sklearn.metrics import roc_auc_score
+
+    param_grid = {
+        'max_depth': [None, 5, 10, 20],
+        'min_samples_split': [2, 5, 10],
+        'min_samples_leaf': [1, 2, 4]
+    }
+    dt = DecisionTreeClassifier(random_state=42)
+
+    gs = GridSearchCV(dt, param_grid, cv=5, scoring="roc_auc", n_jobs=-1)
+    gs.fit(X_train, y_train)
+
+    best_model = gs.best_estimator_
+    preds = best_model.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, preds)
+    return best_model, auc, preds, gs.best_params_
 
 
 def train_direction_only(X_train, y_train, X_test, y_test, n_layers):
@@ -107,31 +167,6 @@ def train_direction_only(X_train, y_train, X_test, y_test, n_layers):
     return best_auc, best_l
 
 
-def cross_validate_xgb(X_train, y_train, n_folds=5):
-    """Stratified k-fold CV for XGBoost."""
-    import xgboost as xgb
-    from sklearn.model_selection import StratifiedKFold
-    from sklearn.metrics import roc_auc_score
-
-    skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
-    aucs = []
-    for train_idx, val_idx in skf.split(X_train, y_train):
-        dt = xgb.DMatrix(X_train[train_idx], label=y_train[train_idx])
-        dv = xgb.DMatrix(X_train[val_idx], label=y_train[val_idx])
-        params = {
-            "objective": "binary:logistic", "eval_metric": "auc",
-            "max_depth": 4, "learning_rate": 0.1,
-            "subsample": 0.8, "colsample_bytree": 0.8,
-            "min_child_weight": 5, "seed": 42, "verbosity": 0,
-        }
-        m = xgb.train(params, dt, num_boost_round=300,
-                      evals=[(dv, "val")],
-                      early_stopping_rounds=20, verbose_eval=False)
-        preds = m.predict(dv)
-        aucs.append(roc_auc_score(y_train[val_idx], preds))
-    return np.mean(aucs), np.std(aucs)
-
-
 def plot_feature_importance(model, feat_names, task_name, out_dir):
     """Save feature importance bar chart."""
     try:
@@ -142,7 +177,11 @@ def plot_feature_importance(model, feat_names, task_name, out_dir):
         print("  matplotlib not available, skipping plot")
         return
 
-    importance = model.get_score(importance_type="gain")
+    # If it's an XGBClassifier, get the underlying booster
+    if hasattr(model, 'get_booster'):
+        importance = model.get_booster().get_score(importance_type="gain")
+    else:
+        importance = model.get_score(importance_type="gain")
     # Map f0,f1,... to feature names
     named_imp = {}
     for k, v in importance.items():
@@ -247,18 +286,34 @@ def main():
               f"(best layer={layer_idxs[dir_best_l]})")
 
         # 2. Logistic regression
-        lr_model, lr_auc, lr_preds, scaler = train_logistic(
+        lr_model, lr_auc, lr_preds, scaler, lr_params = train_logistic(
             X_tr, y_tr, X_te, y_te)
-        print(f"  Logistic Regression: AUC={lr_auc:.4f}")
+        lr_size = len(pickle.dumps(lr_model))
+        print(f"  Logistic Regression: AUC={lr_auc:.4f} | Size={lr_size} bytes | Params={lr_params}")
 
-        # 3. XGBoost
-        xgb_model, xgb_auc, xgb_preds = train_xgboost(
+        # 3. Decision Tree
+        tree_model, tree_auc, tree_preds, tree_params = train_tree(
             X_tr, y_tr, X_te, y_te)
-        cv_mean, cv_std = cross_validate_xgb(X_tr, y_tr)
-        print(f"  XGBoost: AUC={xgb_auc:.4f} (CV: {cv_mean:.4f}±{cv_std:.4f})")
+        tree_size = len(pickle.dumps(tree_model))
+        print(f"  Decision Tree: AUC={tree_auc:.4f} | Size={tree_size} bytes | Params={tree_params}")
+
+        # 4. SVM
+        svm_model, svm_auc, svm_preds, svm_scaler, svm_params = train_svm(
+            X_tr, y_tr, X_te, y_te)
+        svm_size = len(pickle.dumps(svm_model))
+        print(f"  SVM: AUC={svm_auc:.4f} | Size={svm_size} bytes | Params={svm_params}")
+
+        # 5. XGBoost
+        xgb_model, xgb_auc, xgb_preds, cv_mean, cv_std, xgb_params = train_xgboost(
+            X_tr, y_tr, X_te, y_te)
+        xgb_size = len(pickle.dumps(xgb_model))
+        print(f"  XGBoost: AUC={xgb_auc:.4f} (CV: {cv_mean:.4f}±{cv_std:.4f}) | Size={xgb_size} bytes | Params={xgb_params}")
 
         # Save XGBoost model
-        xgb_model.save_model(str(out_dir / f"xgb_{task_name}.json"))
+        if hasattr(xgb_model, 'get_booster'):
+            xgb_model.get_booster().save_model(str(out_dir / f"xgb_{task_name}.json"))
+        else:
+            xgb_model.save_model(str(out_dir / f"xgb_{task_name}.json"))
 
         # Plots
         plot_feature_importance(xgb_model, data["feat_names"],
@@ -270,9 +325,19 @@ def main():
             "direction_only_auc": float(dir_auc),
             "direction_best_layer": int(layer_idxs[dir_best_l]),
             "logistic_auc": float(lr_auc),
+            "logistic_size_bytes": int(lr_size),
+            "logistic_params": lr_params,
+            "tree_auc": float(tree_auc),
+            "tree_size_bytes": int(tree_size),
+            "tree_params": tree_params,
             "xgboost_auc": float(xgb_auc),
             "xgboost_cv_mean": float(cv_mean),
             "xgboost_cv_std": float(cv_std),
+            "xgboost_size_bytes": int(xgb_size),
+            "xgboost_params": xgb_params,
+            "svm_auc": float(svm_auc),
+            "svm_size_bytes": int(svm_size),
+            "svm_params": svm_params,
             "n_train": int(len(y_tr)),
             "n_test": int(len(y_te)),
         }
@@ -282,17 +347,23 @@ def main():
     xgb_aucs = [r["xgboost_auc"] for r in all_results.values()]
     dir_aucs = [r["direction_only_auc"] for r in all_results.values()]
     lr_aucs = [r["logistic_auc"] for r in all_results.values()]
+    tree_aucs = [r["tree_auc"] for r in all_results.values()]
+    svm_aucs = [r["svm_auc"] for r in all_results.values()]
 
     print("=" * 60)
     print(f"HEADLINE mean AUC:")
     print(f"  Direction-only: {np.mean(dir_aucs):.4f} ± {np.std(dir_aucs):.4f}")
     print(f"  Logistic:       {np.mean(lr_aucs):.4f} ± {np.std(lr_aucs):.4f}")
+    print(f"  Decision Tree:  {np.mean(tree_aucs):.4f} ± {np.std(tree_aucs):.4f}")
+    print(f"  SVM:            {np.mean(svm_aucs):.4f} ± {np.std(svm_aucs):.4f}")
     print(f"  XGBoost:        {np.mean(xgb_aucs):.4f} ± {np.std(xgb_aucs):.4f}")
     print("=" * 60)
 
     all_results["headline"] = {
         "direction_mean_auc": float(np.mean(dir_aucs)),
         "logistic_mean_auc": float(np.mean(lr_aucs)),
+        "tree_mean_auc": float(np.mean(tree_aucs)),
+        "svm_mean_auc": float(np.mean(svm_aucs)),
         "xgboost_mean_auc": float(np.mean(xgb_aucs)),
         "xgboost_std_auc": float(np.std(xgb_aucs)),
     }

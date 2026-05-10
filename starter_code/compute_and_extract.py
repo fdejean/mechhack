@@ -18,6 +18,9 @@ import math
 import multiprocessing as mp
 from pathlib import Path
 import numpy as np
+
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import torch
 import torch.nn.functional as F
 
@@ -90,6 +93,65 @@ def get_task_samples(datasets, task_name, model_key):
         return samples, label_fn, "prompt"
 
 
+# ---------- hook-based forward ----------
+def _forward_with_hooks(model, ids, attn, layer_idxs):
+    """Forward pass capturing only selected layer residuals via hooks.
+
+    Much more memory-efficient than output_hidden_states=True which
+    materializes ALL layers (65 for Gemma-4-31B). With hooks we only
+    keep the ~16 layers we actually need.
+
+    Returns dict mapping layer_idx -> hidden_state tensor on the same device.
+    """
+    captured = {}
+    hooks = []
+    # Whether we need output_hidden_states as fallback for layer 0
+    need_hs_fallback = False
+
+    # Hook for embedding output (index 0 in hidden_states)
+    if 0 in layer_idxs:
+        # Gemma4 uses embed_tokens_per_layer; standard models use embed_tokens
+        embed_module = None
+        for attr in ("embed_tokens", "embed_tokens_per_layer"):
+            if hasattr(model.model, attr):
+                embed_module = getattr(model.model, attr)
+                break
+        if embed_module is not None:
+            def _embed_hook(module, input, output):
+                captured[0] = output.detach()
+            hooks.append(embed_module.register_forward_hook(_embed_hook))
+        else:
+            # Can't find embed module — fall back to output_hidden_states
+            need_hs_fallback = True
+
+    if hasattr(model.model, "language_model") and hasattr(model.model.language_model, "layers"):
+        model_layers = model.model.language_model.layers
+    else:
+        model_layers = model.model.layers
+
+    # Hooks for transformer block outputs (hidden_states[k] = output of block k-1)
+    for lidx in layer_idxs:
+        if lidx == 0:
+            continue
+        def _block_hook(module, input, output, _lidx=lidx):
+            h = output[0] if isinstance(output, tuple) else output
+            captured[_lidx] = h.detach()
+        hooks.append(model_layers[lidx - 1].register_forward_hook(_block_hook))
+
+    try:
+        with torch.inference_mode():
+            out = model(input_ids=ids, attention_mask=attn,
+                        output_hidden_states=need_hs_fallback, return_dict=True)
+        if need_hs_fallback and 0 in layer_idxs:
+            captured[0] = out.hidden_states[0].detach()
+        del out
+    finally:
+        for h in hooks:
+            h.remove()
+
+    return captured
+
+
 # ---------- forward pass + caching ----------
 def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                       layer_idxs, use_chunked, batch_size=8, device="cuda:0"):
@@ -131,12 +193,8 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
             torch.cuda.empty_cache()
             
             try:
-                with torch.inference_mode():
-                    out = model(input_ids=ids, attention_mask=attn,
-                                output_hidden_states=True, return_dict=True)
+                captured = _forward_with_hooks(model, ids, attn, layer_idxs)
 
-                hs = out.hidden_states
-                
                 # Length of each sequence ignoring right-padding
                 lengths = attn.sum(dim=1) - 1
                 
@@ -146,16 +204,25 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                     last_idx = int(lengths[b_idx].item())
                     
                     last_tok = torch.stack(
-                        [hs[k][b_idx, last_idx, :] for k in layer_idxs], dim=0
+                        [captured[k][b_idx, last_idx, :] for k in layer_idxs], dim=0
                     ).cpu().float()  # (n_layers_sel, d_model)
 
                     cache[sid] = {"last_tok": last_tok, "n_tokens": n_tok}
 
-                del out, hs
+                del captured
 
             except (torch.OutOfMemoryError, RuntimeError) as e:
-                if "out of memory" not in str(e).lower() or batch_size == 1:
+                if 'enc' in locals(): del enc
+                if 'ids' in locals(): del ids
+                if 'attn' in locals(): del attn
+                if 'captured' in locals(): del captured
+                torch.cuda.empty_cache()
+                
+                if "out of memory" not in str(e).lower():
                     raise
+                if batch_size == 1:
+                    print(f"  [{device}] SKIPPING {batch_samples[0]['sample_id']} due to OOM: {e}", flush=True)
+                    continue
                 print(f"  [{device}] OOM with batch_size={batch_size}, retrying sequentially...", flush=True)
                 # Rewind and retry with batch size 1
                 i -= len(batch_samples)
@@ -168,24 +235,25 @@ def forward_and_cache(model, tokenizer, all_samples, prompt_key_map,
                             tokenize=False, add_generation_prompt=True,
                         )
                         f_enc = tokenizer(f_txt, return_tensors="pt").to(device)
-                        with torch.inference_mode():
-                            f_out = model(input_ids=f_enc.input_ids, attention_mask=f_enc.attention_mask,
-                                          output_hidden_states=True, return_dict=True)
+                        f_captured = _forward_with_hooks(
+                            model, f_enc.input_ids, f_enc.attention_mask, layer_idxs)
                         last_idx = int(f_enc.attention_mask.sum().item() - 1)
                         f_last_tok = torch.stack(
-                            [f_out.hidden_states[k][0, last_idx, :] for k in layer_idxs], dim=0
+                            [f_captured[k][0, last_idx, :] for k in layer_idxs], dim=0
                         ).cpu().float()
                         cache[fallback_s["sample_id"]] = {"last_tok": f_last_tok, "n_tokens": last_idx + 1}
-                        del f_out
+                        del f_captured
                     except Exception as fallback_e:
                         print(f"  [{device}] SKIPPING {fallback_s['sample_id']} due to OOM: {fallback_e}", flush=True)
                     finally:
-                        del f_enc
+                        if 'f_enc' in locals(): del f_enc
                         torch.cuda.empty_cache()
                 # Skip the batch we just manually processed
                 i += len(batch_samples)
             finally:
-                del enc, ids, attn
+                if 'enc' in locals(): del enc
+                if 'ids' in locals(): del ids
+                if 'attn' in locals(): del attn
                 torch.cuda.empty_cache()
 
             if i % (batch_size * 5) < batch_size or i == len(all_samples):
@@ -236,6 +304,15 @@ def compute_direction(cache, samples, label_fn):
 def compute_logit_lens_features(last_tok_residuals, W_U,
                                 refusal_ids, compliance_ids):
     """Compute logit-lens features from last-token residuals."""
+    if W_U.device.type == "cuda":
+        with torch.no_grad():
+            r_dev = last_tok_residuals.to(W_U.device)
+            logits = r_dev @ W_U.T
+            probs = F.softmax(logits, dim=-1)
+            refusal_probs = probs[:, refusal_ids].sum(dim=-1).cpu().numpy()
+            compliance_probs = probs[:, compliance_ids].sum(dim=-1).cpu().numpy()
+            return refusal_probs, compliance_probs
+
     logits = last_tok_residuals @ W_U.T
     probs = F.softmax(logits, dim=-1)  # (n_layers, vocab_size)
     refusal_probs = probs[:, refusal_ids].sum(dim=-1)      # (n_layers,)
@@ -257,8 +334,13 @@ def extract_features_for_task(cache, samples, label_fn, direction,
         n_tok = cache[sid]["n_tokens"]
 
         dir_loading = (r * direction).sum(dim=-1).numpy()  # (n_layers,)
-        ref_p, comp_p = compute_logit_lens_features(
-            r, W_U, refusal_ids, compliance_ids)
+        
+        # Use precomputed logit lens features
+        ref_p = cache[sid].get("ref_p")
+        comp_p = cache[sid].get("comp_p")
+        if ref_p is None or comp_p is None:
+            ref_p, comp_p = compute_logit_lens_features(
+                r, W_U, refusal_ids, compliance_ids)
 
         dir_diff = np.diff(dir_loading)
         transition_layer = float(np.argmax(np.abs(dir_diff)))
@@ -333,7 +415,7 @@ def parse_args():
                     help="Limit samples per dataset (0 = all, useful for testing)")
     ap.add_argument("--num_gpus", type=int, default=1,
                     help="Number of GPUs to run data-parallel extraction on")
-    ap.add_argument("--batch_size", type=int, default=8,
+    ap.add_argument("--batch_size", type=int, default=2,
                     help="Batch size per GPU for extraction")
     return ap.parse_args()
 
@@ -362,7 +444,10 @@ def main():
         device_map="cuda:0", trust_remote_code=True)
     model.eval()
 
-    n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
+    if hasattr(model.model, "language_model") and hasattr(model.model.language_model, "layers"):
+        n_layers = len(model.model.language_model.layers)
+    else:
+        n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
     layer_idxs = parse_layers(args.layers, n_layers)
     n_layers_sel = len(layer_idxs)
 
@@ -455,6 +540,39 @@ def main():
     # 5. Compute Directions & Features
     task_names = [f"refusal_{args.model_key}", "cyber_probe1", "cyber_probe2", "cyber_probe3"]
 
+    W_U_gpu = W_U
+    if torch.cuda.is_available():
+        print("Moving W_U to GPU to speed up logit lens...", flush=True)
+        W_U_gpu = W_U.to("cuda:0")
+
+    # PRECOMPUTE logit lens features for all items in cache
+    print("Precomputing logit lens features for all cached samples...", flush=True)
+    cache_keys = list(cache.keys())
+    batch_size = 128
+    
+    for i in range(0, len(cache_keys), batch_size):
+        batch_keys = cache_keys[i:i+batch_size]
+        r_stack = torch.stack([cache[k]["last_tok"] for k in batch_keys], dim=0) # (B, L, D)
+        
+        if W_U_gpu.device.type == "cuda":
+            with torch.no_grad():
+                r_dev = r_stack.to(W_U_gpu.device)
+                logits = r_dev @ W_U_gpu.T
+                probs = F.softmax(logits, dim=-1)
+                b_ref_p = probs[:, :, refusal_ids].sum(dim=-1).cpu().numpy()
+                b_comp_p = probs[:, :, compliance_ids].sum(dim=-1).cpu().numpy()
+        else:
+            logits = r_stack @ W_U_gpu.T
+            probs = F.softmax(logits, dim=-1)
+            b_ref_p = probs[:, :, refusal_ids].sum(dim=-1).numpy()
+            b_comp_p = probs[:, :, compliance_ids].sum(dim=-1).numpy()
+            
+        for j, k in enumerate(batch_keys):
+            cache[k]["ref_p"] = b_ref_p[j]
+            cache[k]["comp_p"] = b_comp_p[j]
+            
+    print("Logit lens precomputation done.", flush=True)
+
     for task_name in task_names:
         print(f"\n=== Task: {task_name} ===", flush=True)
         samples, label_fn, prompt_key = get_task_samples(
@@ -477,7 +595,7 @@ def main():
 
         X, y, ids, splits, feat_names = extract_features_for_task(
             cache, samples, label_fn, direction,
-            W_U, refusal_ids, compliance_ids, n_layers_sel)
+            W_U_gpu, refusal_ids, compliance_ids, n_layers_sel)
 
         np.savez(str(out_dir / f"features_{task_name}.npz"),
                  X=X, y=y, sample_ids=ids, splits=splits,

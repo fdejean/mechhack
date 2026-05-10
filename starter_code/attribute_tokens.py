@@ -142,7 +142,10 @@ def main():
         attn_implementation="sdpa",
         device_map=DEVICE, trust_remote_code=True)
     model.eval()
-    n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
+    if hasattr(model.model, "language_model") and hasattr(model.model.language_model, "layers"):
+        n_layers = len(model.model.language_model.layers)
+    else:
+        n_layers = len(model.model.layers) if hasattr(model.model, "layers") else 64
     functional_ids = get_functional_ids(tok)
 
     # Load refusal samples (test split, refusals only)
