@@ -334,8 +334,13 @@ def extract_features_for_task(cache, samples, label_fn, direction,
         n_tok = cache[sid]["n_tokens"]
 
         dir_loading = (r * direction).sum(dim=-1).numpy()  # (n_layers,)
-        ref_p, comp_p = compute_logit_lens_features(
-            r, W_U, refusal_ids, compliance_ids)
+        
+        # Use precomputed logit lens features
+        ref_p = cache[sid].get("ref_p")
+        comp_p = cache[sid].get("comp_p")
+        if ref_p is None or comp_p is None:
+            ref_p, comp_p = compute_logit_lens_features(
+                r, W_U, refusal_ids, compliance_ids)
 
         dir_diff = np.diff(dir_loading)
         transition_layer = float(np.argmax(np.abs(dir_diff)))
@@ -539,6 +544,34 @@ def main():
     if torch.cuda.is_available():
         print("Moving W_U to GPU to speed up logit lens...", flush=True)
         W_U_gpu = W_U.to("cuda:0")
+
+    # PRECOMPUTE logit lens features for all items in cache
+    print("Precomputing logit lens features for all cached samples...", flush=True)
+    cache_keys = list(cache.keys())
+    batch_size = 128
+    
+    for i in range(0, len(cache_keys), batch_size):
+        batch_keys = cache_keys[i:i+batch_size]
+        r_stack = torch.stack([cache[k]["last_tok"] for k in batch_keys], dim=0) # (B, L, D)
+        
+        if W_U_gpu.device.type == "cuda":
+            with torch.no_grad():
+                r_dev = r_stack.to(W_U_gpu.device)
+                logits = r_dev @ W_U_gpu.T
+                probs = F.softmax(logits, dim=-1)
+                b_ref_p = probs[:, :, refusal_ids].sum(dim=-1).cpu().numpy()
+                b_comp_p = probs[:, :, compliance_ids].sum(dim=-1).cpu().numpy()
+        else:
+            logits = r_stack @ W_U_gpu.T
+            probs = F.softmax(logits, dim=-1)
+            b_ref_p = probs[:, :, refusal_ids].sum(dim=-1).numpy()
+            b_comp_p = probs[:, :, compliance_ids].sum(dim=-1).numpy()
+            
+        for j, k in enumerate(batch_keys):
+            cache[k]["ref_p"] = b_ref_p[j]
+            cache[k]["comp_p"] = b_comp_p[j]
+            
+    print("Logit lens precomputation done.", flush=True)
 
     for task_name in task_names:
         print(f"\n=== Task: {task_name} ===", flush=True)
