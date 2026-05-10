@@ -304,6 +304,15 @@ def compute_direction(cache, samples, label_fn):
 def compute_logit_lens_features(last_tok_residuals, W_U,
                                 refusal_ids, compliance_ids):
     """Compute logit-lens features from last-token residuals."""
+    if W_U.device.type == "cuda":
+        with torch.no_grad():
+            r_dev = last_tok_residuals.to(W_U.device)
+            logits = r_dev @ W_U.T
+            probs = F.softmax(logits, dim=-1)
+            refusal_probs = probs[:, refusal_ids].sum(dim=-1).cpu().numpy()
+            compliance_probs = probs[:, compliance_ids].sum(dim=-1).cpu().numpy()
+            return refusal_probs, compliance_probs
+
     logits = last_tok_residuals @ W_U.T
     probs = F.softmax(logits, dim=-1)  # (n_layers, vocab_size)
     refusal_probs = probs[:, refusal_ids].sum(dim=-1)      # (n_layers,)
@@ -526,6 +535,11 @@ def main():
     # 5. Compute Directions & Features
     task_names = [f"refusal_{args.model_key}", "cyber_probe1", "cyber_probe2", "cyber_probe3"]
 
+    W_U_gpu = W_U
+    if torch.cuda.is_available():
+        print("Moving W_U to GPU to speed up logit lens...", flush=True)
+        W_U_gpu = W_U.to("cuda:0")
+
     for task_name in task_names:
         print(f"\n=== Task: {task_name} ===", flush=True)
         samples, label_fn, prompt_key = get_task_samples(
@@ -548,7 +562,7 @@ def main():
 
         X, y, ids, splits, feat_names = extract_features_for_task(
             cache, samples, label_fn, direction,
-            W_U, refusal_ids, compliance_ids, n_layers_sel)
+            W_U_gpu, refusal_ids, compliance_ids, n_layers_sel)
 
         np.savez(str(out_dir / f"features_{task_name}.npz"),
                  X=X, y=y, sample_ids=ids, splits=splits,
