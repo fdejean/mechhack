@@ -13,3 +13,8 @@ __pycache__/
 
 # Old experiments
 edit_eval_gradinput/
+extracts/
+probes/weights/
+tools/claude-code-aiaas/vendor/
+*.pt
+datasets/cyber_probes/all_fixed.jsonl
