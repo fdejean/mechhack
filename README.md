@@ -4,7 +4,7 @@ Probe the residual streams of **Gemma-4-31B-it and Qwen3.6-27B** to predict refu
 
 **Recorded mean test AUC: 0.918 across five tasks.** The more interesting result is the gap between a useful predictor and a reliable causal intervention: minimal token edits failed, while targeted activation ablation changed behavior.
 
-[Results notebook](RESULTS.ipynb) · [Full audited results](results_FINAL.md) · [Presentation](SLIDE_DECK_FINAL.md)
+[Results notebook](RESULTS.ipynb) · [Full audited results](results_FINAL.md) · [Presentation](https://www.canva.com/design/DAHJQWqBv5U/6hloRw3CgXOM6GzLilxYFQ/edit)
 
 ## Prediction results
 
