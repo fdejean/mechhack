@@ -43,4 +43,4 @@ The [results notebook](RESULTS.ipynb) and [audited report](results_FINAL.md) exp
 
 Full reruns require model weights, activation extracts, and the original compute/API environment. The [environment guide](docs/onboarding.md) and [original hackathon brief](HACKATHON.md) retain those setup details. The source entry points are [edit_agent.py](edit_agent.py), [pre_agent.py](pre_agent.py), and [patch_agent.py](patch_agent.py); cached outcomes are in [edit_eval/](edit_eval/).
 
-Built by Veronika Wannack with teammate Federico Dejean. Hackathon-provided scaffolding and rules are distinguished from the team's experiments in the original brief and source layout.
+Built by Veronika Wannack with teammate Florian Dejean. Hackathon-provided scaffolding and rules are distinguished from the team's experiments in the original brief and source layout.
