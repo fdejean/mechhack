@@ -11,7 +11,7 @@ Story arc: probe AUC 0.918 → token attribution fails (0%) → free-form rewrit
 **Three Ways to Flip a 0.92-AUC Refusal Probe**
 *And what each one tells us about the probe*
 
-Veronika Wannack, Federico Dejean
+Veronika Wannack, Florian Dejean
 EPFL Red-Team Mech-Interp Hackathon, May 2026
 
 Just title + names. 5 sec.
